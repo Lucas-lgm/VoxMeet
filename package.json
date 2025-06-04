@@ -1,0 +1,47 @@
+{
+  "name": "recorder-app",
+  "version": "1.0.0",
+  "description": "一个基于 Electron 的录音应用",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "tsc",
+    "build:renderer": "tsc -p tsconfig.renderer.json",
+    "build:watch": "concurrently \"npm run build:main -- --watch\" \"npm run build:renderer -- --watch\"",
+    "start": "npm run build && electron .",
+    "start:prod": "electron .",
+    "dev": "npm run dev:build && npm run dev:start",
+    "dev:build": "npm run build",
+    "dev:start": "concurrently \"npm run build:watch\" \"npm run dev:electron\"",
+    "dev:electron": "wait-on dist/main.js dist/renderer.js && nodemon --watch dist --exec \"electron . --dev\"",
+    "clean": "rm -rf dist",
+    "package": "npm run build && electron-builder",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["electron", "recorder", "audio", "typescript"],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.6.4",
+    "typescript": "^5.3.0",
+    "@types/node": "^20.10.0",
+    "concurrently": "^8.2.2",
+    "wait-on": "^7.2.0",
+    "nodemon": "^3.0.2",
+    "chokidar-cli": "^3.0.0"
+  },
+  "build": {
+    "appId": "com.example.recorder-app",
+    "productName": "录音应用",
+    "directories": {
+      "output": "dist-packages"
+    },
+    "files": [
+      "dist/**/*",
+      "src/**/*.html",
+      "src/**/*.css",
+      "package.json"
+    ]
+  }
+}
