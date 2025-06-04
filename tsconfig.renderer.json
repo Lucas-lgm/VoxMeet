@@ -1,0 +1,33 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "dist/renderer",
+    "rootDir": "src/renderer",
+    "module": "ES2020",
+    "target": "ES2020",
+    "sourceMap": true,
+    "declaration": false,
+    "moduleResolution": "node",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "jsx": "preserve",
+    "types": ["node"],
+    "typeRoots": ["./src/renderer/types", "./src", "./node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/renderer/*"],
+      "@types/*": ["src/renderer/types/*"],
+      "@dom/*": ["src/renderer/dom/*"],
+      "@audio/*": ["src/renderer/audio/*"],
+      "@utils/*": ["src/renderer/utils/*"]
+    }
+  },
+  "include": [
+    "src/renderer/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+} 

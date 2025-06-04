@@ -1,0 +1,8 @@
+{
+  "tray": {
+    "tooltip": "会议记录助手",
+    "showPopup": "录制",
+    "openMain": "转写记录",
+    "quit": "退出"
+  }
+}
