@@ -22,8 +22,6 @@ This app records **both system audio and microphone** with echo cancellation, tr
 - **Acoustic Echo Cancellation** — WebRTC AEC removes echo from the mic channel during calls, so far-end speech doesn't bleed into your recording.
 - **Local Whisper Transcription** — Runs entirely on-device via Whisper.cpp. No API calls, no per-minute fees, no data leaving your machine.
 - **Custom AI Summary Provider** — Bring your own LLM key (OpenAI, Claude, or any OpenAI-compatible API). No vendor lock-in, no bundled subscription.
-- **Mini Recording Popup** — 200×40 frosted-glass overlay, draggable with pause/resume. Stays out of your way.
-- **Tray-Based Background Operation** — Runs in the menu bar, start/stop via global shortcut.
 - **Rich Text Editor** — Tiptap-based WYSIWYG with headings, lists, images, and markdown export.
 - **Meeting History** — Local file-based storage with playback and editing.
 
