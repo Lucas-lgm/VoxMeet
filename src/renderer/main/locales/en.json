@@ -1,0 +1,104 @@
+{
+  "app": {
+    "title": "Meeting Assistant",
+    "tab": {
+      "transcription": "Transcription",
+      "summary": "AI Summary"
+    }
+  },
+  "titleBar": {
+    "close": "Close",
+    "minimize": "Minimize",
+    "maximize": "Maximize",
+    "restore": "Restore"
+  },
+  "status": {
+    "ready": "Ready",
+    "settings": "Settings",
+    "moreTasks": "+{count} more tasks"
+  },
+  "sidebar": {
+    "title": "Meetings",
+    "refresh": "Refresh list",
+    "noMeetings": "No meeting records",
+    "rename": "Rename",
+    "delete": "Delete",
+    "confirmDelete": "Delete 「{title}」?",
+    "deleteFailed": "Delete failed",
+    "renamePrompt": "Rename:",
+    "renameFailed": "Rename failed"
+  },
+  "transcription": {
+    "selectMeeting": "Select a meeting to view transcription",
+    "noResults": "No transcription results",
+    "unsavedChanges": "Unsaved changes",
+    "save": "Save changes",
+    "start": "Start Transcription",
+    "retranscribe": "Re-transcribe",
+    "transcribing": "Transcribing...",
+    "saveFailed": "Save failed",
+    "failed": "Transcription failed: {error}",
+    "taskLabel": "Transcribe {title}"
+  },
+  "transcript": {
+    "unknownSpeaker": "Unknown",
+    "editSpeaker": "Edit speaker name:"
+  },
+  "summary": {
+    "selectMeeting": "Select a meeting to view AI summary",
+    "noSummary": "No AI summary yet",
+    "generate": "Generate AI Summary",
+    "generating": "Generating...",
+    "regenerate": "Regenerate",
+    "generateFailed": "Generation failed: {error}",
+    "taskLabel": "AI Summary {title}"
+  },
+  "settings": {
+    "title": "Settings",
+    "save": "Save Settings",
+    "saved": "Settings saved",
+    "saveFailed": "Save failed: {error}",
+    "language": {
+      "title": "Language",
+      "label": "Interface Language",
+      "zh": "简体中文",
+      "en": "English"
+    },
+    "ai": {
+      "title": "AI Settings",
+      "providerCustom": "Custom",
+      "provider": "API Provider",
+      "apiBaseUrl": "API Base URL",
+      "apiKey": "API Key",
+      "model": "Model"
+    },
+    "transcription": {
+      "title": "Transcription Settings",
+      "language": "Transcription Language",
+      "autoDetect": "Auto Detect",
+      "languageHint": "Selecting a language improves transcription accuracy.",
+      "saveLanguage": "Save Language",
+      "languageSaved": "Language setting saved"
+    },
+    "model": {
+      "title": "Whisper Model",
+      "select": "Model Selection",
+      "downloaded": "✅ {label} downloaded, ready to use",
+      "notDownloaded": "⚠️ {label} not downloaded ({size}).",
+      "download": "Download {label}"
+    },
+    "proxy": {
+      "title": "Proxy Settings",
+      "httpProxy": "HTTP Proxy",
+      "placeholder": "http://127.0.0.1:7890 (leave empty to use HTTPS_PROXY env var)",
+      "hint": "Network proxy for model downloads. Leave empty to use the HTTPS_PROXY environment variable.",
+      "save": "Save Proxy",
+      "saved": "Proxy setting saved"
+    }
+  },
+  "common": {
+    "loading": "Loading...",
+    "unknown": "Unknown",
+    "save": "Save"
+  }
+}

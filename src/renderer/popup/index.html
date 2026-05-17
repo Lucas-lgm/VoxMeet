@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>Recording</title>
+  <style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  .mini-rec-box {
+    width: 200px; height: 40px;
+    border-radius: 20px;
+    background: rgba(40,40,45,0.35);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    border: none;
+    box-shadow: none;
+    display: flex; align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    transition: all 0.25s ease;
+    opacity: 0.9;
+    cursor: move;
+  }
+  .mini-rec-box:hover { opacity: 1; }
+  .mini-rec-box.pause { background: rgba(55,55,60,0.32); }
+  .mini-wave { display: flex; gap: 2px; align-items: center; height: 16px; }
+  .wave-line { width: 2px; border-radius: 1px; background: #fff; transition: height 0.1s ease; }
+  .rec-timer { color: #f0f0f0; font-size: 13px; letter-spacing: 0.5px; font-variant-numeric: tabular-nums; }
+  .small-btn {
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 14px; cursor: pointer; opacity: 0.7;
+    transition: 0.2s;
+  }
+  .small-btn:hover { opacity: 1; }
+  .btn-wrap { display: flex; gap: 10px; align-items: center; }
+  </style>
+</head>
+<body>
+  <div id="app" class="mini-rec-box idle">
+    <div class="mini-wave" id="waveDom"></div>
+    <div class="rec-timer" id="timeText">00:00</div>
+    <div class="btn-wrap">
+      <div class="small-btn" id="ctrlBtn">▶</div>
+      <div class="small-btn" id="endBtn" style="display:none">⏹</div>
+    </div>
+  </div>
+  <script>
+    // Wave bars
+    const waveDom = document.getElementById('waveDom')
+    for (let i = 0; i < 5; i++) {
+      const line = document.createElement('div')
+      line.className = 'wave-line'
+      line.style.height = '4px'
+      waveDom.appendChild(line)
+    }
+
+    const box = document.getElementById('app')
+    const timeText = document.getElementById('timeText')
+    const ctrlBtn = document.getElementById('ctrlBtn')
+    const endBtn = document.getElementById('endBtn')
+    let timer = null, sec = 0, pausedSec = 0
+    let isRecording = false, isPaused = false
+
+    function getTime(s) {
+      return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0')
+    }
+
+    function runWave() {
+      if (!isRecording || isPaused) return
+      document.querySelectorAll('.wave-line').forEach(el => {
+        el.style.height = (Math.random() * 12 + 3) + 'px'
+      })
+    }
+    setInterval(runWave, 100)
+
+    // Record / Pause / Resume toggle
+    ctrlBtn.addEventListener('click', async () => {
+      try {
+        if (!isRecording) {
+          // Start recording
+          const result = await window.electronAPI.startRecording()
+          if (result && result.ok) {
+            window.electronAPI.setRecordingState(true)
+            isRecording = true; isPaused = false
+            box.className = 'mini-rec-box rec'
+            ctrlBtn.innerText = '⏸'
+            endBtn.style.display = 'flex'
+            timer = setInterval(() => { sec++; timeText.innerText = getTime(sec + pausedSec) }, 1000)
+          } else {
+            box.style.border = '1px solid rgba(255,69,58,0.5)'
+            setTimeout(() => { box.style.border = '' }, 2000)
+          }
+        } else if (!isPaused) {
+          // Pause recording
+          const result = await window.electronAPI.pauseRecording()
+          if (result && result.ok) {
+            isPaused = true
+            clearInterval(timer); timer = null
+            box.className = 'mini-rec-box pause'
+            ctrlBtn.innerText = '▶'
+          }
+        } else {
+          // Resume recording
+          const result = await window.electronAPI.resumeRecording()
+          if (result && result.ok) {
+            isPaused = false
+            box.className = 'mini-rec-box rec'
+            ctrlBtn.innerText = '⏸'
+            timer = setInterval(() => { sec++; timeText.innerText = getTime(sec + pausedSec) }, 1000)
+          }
+        }
+      } catch (e) { console.error('ctrl error:', e) }
+    })
+
+    // Stop recording
+    endBtn.addEventListener('click', async () => {
+      try {
+        await window.electronAPI.stopRecording()
+        window.electronAPI.setRecordingState(false)
+        resetUI()
+      } catch (e) { console.error('stop error:', e) }
+    })
+
+    function resetUI() {
+      clearInterval(timer); timer = null
+      isRecording = false; isPaused = false
+      sec = 0; pausedSec = 0
+      timeText.innerText = '00:00'
+      box.className = 'mini-rec-box idle'
+      ctrlBtn.innerText = '▶'
+      endBtn.style.display = 'none'
+      document.querySelectorAll('.wave-line').forEach(e => e.style.height = '4px')
+    }
+
+    // -------- Window Drag (IPC-based) --------
+    (function initDrag() {
+      let sx = 0, sy = 0
+      const titleBar = box
+      titleBar.onmousedown = function (e) {
+        if (e.target.closest('.btn-wrap')) return
+        sx = e.screenX; sy = e.screenY
+        document.onmousemove = function (e) {
+          const dx = e.screenX - sx, dy = e.screenY - sy
+          sx = e.screenX; sy = e.screenY
+          window.electronAPI.dragWindow(dx, dy)
+        }
+        document.onmouseup = function () { document.onmousemove = null; document.onmouseup = null }
+      }
+    })()
+  </script>
+</body>
+</html>

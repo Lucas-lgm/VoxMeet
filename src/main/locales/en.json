@@ -1,0 +1,8 @@
+{
+  "tray": {
+    "tooltip": "Meeting Assistant",
+    "showPopup": "Recording",
+    "openMain": "Transcripts",
+    "quit": "Quit"
+  }
+}

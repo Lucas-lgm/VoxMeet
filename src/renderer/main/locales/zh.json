@@ -1,0 +1,104 @@
+{
+  "app": {
+    "title": "会议记录助手",
+    "tab": {
+      "transcription": "转写结果",
+      "summary": "AI 总结"
+    }
+  },
+  "titleBar": {
+    "close": "关闭",
+    "minimize": "最小化",
+    "maximize": "最大化",
+    "restore": "还原"
+  },
+  "status": {
+    "ready": "就绪",
+    "settings": "设置",
+    "moreTasks": "+{count} 个任务"
+  },
+  "sidebar": {
+    "title": "会议记录",
+    "refresh": "刷新列表",
+    "noMeetings": "暂无会议记录",
+    "rename": "重命名",
+    "delete": "删除",
+    "confirmDelete": "确认删除「{title}」？",
+    "deleteFailed": "删除失败",
+    "renamePrompt": "重命名:",
+    "renameFailed": "重命名失败"
+  },
+  "transcription": {
+    "selectMeeting": "选择左侧会议记录查看转写结果",
+    "noResults": "暂无转写结果",
+    "unsavedChanges": "有未保存的修改",
+    "save": "保存修改",
+    "start": "开始转写",
+    "retranscribe": "重新转写",
+    "transcribing": "转写中...",
+    "saveFailed": "保存失败",
+    "failed": "转写失败: {error}",
+    "taskLabel": "转写 {title}"
+  },
+  "transcript": {
+    "unknownSpeaker": "未知",
+    "editSpeaker": "修改说话人名称:"
+  },
+  "summary": {
+    "selectMeeting": "选择左侧会议记录查看 AI 总结",
+    "noSummary": "暂无 AI 总结",
+    "generate": "生成 AI 总结",
+    "generating": "生成中...",
+    "regenerate": "重新生成",
+    "generateFailed": "生成失败: {error}",
+    "taskLabel": "AI 总结 {title}"
+  },
+  "settings": {
+    "title": "设置",
+    "save": "保存设置",
+    "saved": "设置已保存",
+    "saveFailed": "保存失败: {error}",
+    "language": {
+      "title": "语言设置",
+      "label": "界面语言",
+      "zh": "简体中文",
+      "en": "English"
+    },
+    "ai": {
+      "title": "AI 设置",
+      "providerCustom": "自定义",
+      "provider": "API Provider",
+      "apiBaseUrl": "API Base URL",
+      "apiKey": "API Key",
+      "model": "Model"
+    },
+    "transcription": {
+      "title": "转写设置",
+      "language": "转写语言",
+      "autoDetect": "自动检测",
+      "languageHint": "选择转写语言可提高准确率。",
+      "saveLanguage": "保存语言设置",
+      "languageSaved": "语言设置已保存"
+    },
+    "model": {
+      "title": "转写模型",
+      "select": "模型选择",
+      "downloaded": "✅ {label} 已下载，可直接使用",
+      "notDownloaded": "⚠️ {label} 尚未下载（{size}）。",
+      "download": "下载 {label}"
+    },
+    "proxy": {
+      "title": "代理设置",
+      "httpProxy": "HTTP 代理",
+      "placeholder": "http://127.0.0.1:7890（留空则使用系统环境变量 HTTPS_PROXY）",
+      "hint": "用于模型下载的网络代理。留空时自动读取 <code>HTTPS_PROXY</code> 环境变量。",
+      "save": "保存代理设置",
+      "saved": "代理设置已保存"
+    }
+  },
+  "common": {
+    "loading": "加载中...",
+    "unknown": "未知",
+    "save": "保存"
+  }
+}

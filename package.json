@@ -1,47 +1,188 @@
 {
-  "name": "recorder-app",
+  "name": "voxmeet",
   "version": "1.0.0",
-  "description": "一个基于 Electron 的录音应用",
-  "main": "dist/main.js",
+  "description": "macOS meeting recorder with system audio capture, AEC, local Whisper transcription, and custom AI summaries",
+  "main": "dist/main/index.js",
   "scripts": {
     "build": "npm run build:main && npm run build:renderer",
-    "build:main": "tsc",
-    "build:renderer": "tsc -p tsconfig.renderer.json",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "NODE_ENV=development webpack --config webpack.renderer.js",
     "build:watch": "concurrently \"npm run build:main -- --watch\" \"npm run build:renderer -- --watch\"",
     "start": "npm run build && electron .",
     "start:prod": "electron .",
     "dev": "npm run dev:build && npm run dev:start",
     "dev:build": "npm run build",
     "dev:start": "concurrently \"npm run build:watch\" \"npm run dev:electron\"",
-    "dev:electron": "wait-on dist/main.js dist/renderer.js && nodemon --watch dist --exec \"electron . --dev\"",
+    "dev:electron": "wait-on dist/main/index.js dist/renderer/renderer.js && nodemon --watch dist --exec \"NODE_OPTIONS=\"--force-node-api-uncaught-exceptions-policy=true\" electron . --dev\"",
     "clean": "rm -rf dist",
-    "package": "npm run build && electron-builder",
+    "package": "NODE_ENV=production npm run clean && tsc -p tsconfig.main.json --sourceMap false && webpack --config webpack.renderer.js --mode production && electron-builder",
+    "check-permissions": "node scripts/check-permissions.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["electron", "recorder", "audio", "typescript"],
+  "keywords": [
+    "electron",
+    "recorder",
+    "audio",
+    "typescript",
+    "meeting-notes",
+    "whisper",
+    "speech-to-text",
+    "macos"
+  ],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/turndown": "^5.0.6",
+    "@vue/compiler-sfc": "^3.5.34",
+    "chokidar-cli": "^3.0.0",
+    "concurrently": "^8.2.2",
+    "copy-webpack-plugin": "^13.0.0",
+    "css-loader": "^6.10.0",
     "electron": "^28.0.0",
     "electron-builder": "^24.6.4",
-    "typescript": "^5.3.0",
-    "@types/node": "^20.10.0",
-    "concurrently": "^8.2.2",
-    "wait-on": "^7.2.0",
+    "html-webpack-plugin": "^5.6.0",
+    "javascript-obfuscator": "^4.1.1",
+    "mini-css-extract-plugin": "^2.8.1",
     "nodemon": "^3.0.2",
-    "chokidar-cli": "^3.0.0"
+    "style-loader": "^3.3.4",
+    "terser-webpack-plugin": "^5.3.14",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.3.0",
+    "vue-loader": "^17.4.2",
+    "wait-on": "^7.2.0",
+    "webpack": "^5.90.3",
+    "webpack-cli": "^5.1.4",
+    "webpack-obfuscator": "^3.5.1"
+  },
+  "dependencies": {
+    "@ennuicastr/webrtcaec3.js": "^0.3.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@tiptap/extension-bubble-menu": "^3.23.4",
+    "@tiptap/extension-drag-handle": "^3.23.4",
+    "@tiptap/extension-image": "^3.23.4",
+    "@tiptap/starter-kit": "^3.23.4",
+    "@tiptap/suggestion": "^3.23.4",
+    "@tiptap/vue-3": "^3.23.4",
+    "@types/fluent-ffmpeg": "^2.1.27",
+    "fluent-ffmpeg": "^2.1.3",
+    "idb": "^8.0.3",
+    "marked": "^18.0.3",
+    "turndown": "^7.2.4",
+    "vue": "^3.5.34",
+    "vue-i18n": "^9.14.4",
+    "winston": "^3.17.0",
+    "winston-daily-rotate-file": "^5.0.0"
   },
   "build": {
-    "appId": "com.example.recorder-app",
-    "productName": "录音应用",
+    "appId": "com.voxmeet.app",
+    "productName": "VoxMeet",
     "directories": {
       "output": "dist-packages"
     },
     "files": [
       "dist/**/*",
-      "src/**/*.html",
-      "src/**/*.css",
-      "package.json"
+      "package.json",
+      "native/modules/output/*"
+    ],
+    "extraResources": [
+      {
+        "from": "native/modules/output/mic_monitor",
+        "to": "mic_monitor",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/@ffmpeg-installer/darwin-arm64/ffmpeg",
+        "to": "ffmpeg-darwin-arm64",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/@ffmpeg-installer/darwin-x64/ffmpeg",
+        "to": "ffmpeg-darwin-x64",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node_modules/@ffmpeg-installer/win32-x64/ffmpeg.exe",
+        "to": "ffmpeg-win32-x64.exe",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "whisper/whisper-cli",
+        "to": "whisper/whisper-cli",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "identity": "EA84EE4FBE18BDC2B47085187A47C926AE5A58BB",
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "",
+        "NSAudioCaptureUsageDescription": ""
+      },
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "hardenedRuntime": true
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "publisherName": "Your Company Name",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "VoxMeet",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "menuCategory": true,
+      "perMachine": false
+    },
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**/*"
     ]
   }
 }
