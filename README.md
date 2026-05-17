@@ -4,8 +4,11 @@
 [![macOS](https://img.shields.io/badge/macOS-14+-brightgreen)](https://www.apple.com/macos)
 [![Electron](https://img.shields.io/badge/Electron-28+-blueviolet)](https://www.electronjs.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/Lucas-lgm/VoxMeet/pulls)
+[![Website](https://img.shields.io/badge/Website-VoxMeet-0a84ff)](https://lucas-lgm.github.io/VoxMeet/)
 
 Record meetings and voice conversations on macOS, get instant transcripts powered by local Whisper, and generate AI summaries with your own API provider.
+
+> 🌐 [lucas-lgm.github.io/VoxMeet](https://lucas-lgm.github.io/VoxMeet/) — project landing page
 
 ## Why this tool
 
