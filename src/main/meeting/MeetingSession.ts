@@ -15,7 +15,7 @@ export class MeetingSession {
   async startRecording(): Promise<boolean> {
     const now = new Date()
     const id = now.toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
-    const title = `Meeting_${now.toLocaleDateString('zh-CN')}`
+    const title = `Meeting_${now.toLocaleDateString('en-US')}`
     this.currentDir = await this.fileManager.ensureMeetingDir(id)
     const recordingPath = this.fileManager.getRecordingPath(this.currentDir)
     const whisperPath = this.fileManager.getWhisperPath(this.currentDir)
@@ -36,11 +36,12 @@ export class MeetingSession {
   async stopRecording(): Promise<any> {
     this.controller.stopCapture()
     const duration = Math.floor((Date.now() - this.startTime) / 1000)
-    const metadata = {
+    const existing = await this.fileManager.loadMetadata(this.currentDir) || {}
+    await this.fileManager.saveMetadata(this.currentDir, {
+      ...existing,
       state: 'processing',
       duration,
-    }
-    await this.fileManager.saveMetadata(this.currentDir, metadata)
+    })
     return { meetingDir: this.currentDir, duration, whisperPath: this.fileManager.getWhisperPath(this.currentDir) }
   }
 
