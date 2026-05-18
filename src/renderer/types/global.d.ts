@@ -141,6 +141,10 @@ export interface ElectronAPI {
   // Tray locale
   setTrayLocale: (locale: string) => Promise<{ ok: boolean }>
 
+  // Auto record
+  getAutoRecord: () => Promise<{ enabled: boolean }>
+  setAutoRecord: (enabled: boolean) => Promise<{ ok: boolean; error?: string }>
+
   // Output path
   getOutputPath: () => Promise<{ outputPath: string }>
   setOutputPath: (outputPath: string) => Promise<{ ok: boolean; error?: string }>

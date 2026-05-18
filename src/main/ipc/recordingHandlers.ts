@@ -48,50 +48,53 @@ async function runTranscription(meetingDir: string, whisperPath: string) {
   }
 }
 
+export async function startRecording(): Promise<{ ok: boolean; error?: string }> {
+  try {
+    if (!controller?.initialize()) {
+      return { ok: false, error: 'Failed to initialize recorder' }
+    }
+    const outputPath = await settingsStore.getOutputPath()
+    const fileManager = new AudioFileManager(outputPath || undefined)
+    session = new MeetingSession(controller, fileManager)
+    const ok = await session.startRecording()
+    if (ok) {
+      logger.info('Recording started')
+    }
+    return { ok }
+  } catch (e: any) {
+    logger.error('startRecording error', { error: e.message })
+    return { ok: false, error: e.message }
+  }
+}
+
+export async function stopRecording(): Promise<{ ok: boolean; error?: string; meetingDir?: string }> {
+  try {
+    if (!session) return { ok: false, error: 'No active session' }
+    const result = await session.stopRecording()
+    const meetingDir = result.meetingDir
+    const whisperPath = result.whisperPath
+    session = null
+
+    new Notification({
+      title: 'Recording Complete',
+      body: 'Recording complete, preparing transcription...',
+    }).show()
+
+    // Start transcription asynchronously (non-blocking)
+    runTranscription(meetingDir, whisperPath)
+
+    return { ok: true, ...result }
+  } catch (e: any) {
+    logger.error('stopRecording error', { error: e.message })
+    return { ok: false, error: e.message }
+  }
+}
+
 export function setupRecordingIPC() {
   controller = new RecorderController()
 
-  ipcMain.handle('recording:start', async () => {
-    try {
-      if (!controller?.initialize()) {
-        return { ok: false, error: 'Failed to initialize recorder' }
-      }
-      const outputPath = await settingsStore.getOutputPath()
-      const fileManager = new AudioFileManager(outputPath || undefined)
-      session = new MeetingSession(controller, fileManager)
-      const ok = await session.startRecording()
-      if (ok) {
-        logger.info('Recording started')
-      }
-      return { ok }
-    } catch (e: any) {
-      logger.error('recording:start error', { error: e.message })
-      return { ok: false, error: e.message }
-    }
-  })
-
-  ipcMain.handle('recording:stop', async () => {
-    try {
-      if (!session) return { ok: false, error: 'No active session' }
-      const result = await session.stopRecording()
-      const meetingDir = result.meetingDir
-      const whisperPath = result.whisperPath
-      session = null
-
-      new Notification({
-        title: 'Recording Complete',
-        body: 'Recording complete, preparing transcription...',
-      }).show()
-
-      // Start transcription asynchronously (non-blocking)
-      runTranscription(meetingDir, whisperPath)
-
-      return { ok: true, ...result }
-    } catch (e: any) {
-      logger.error('recording:stop error', { error: e.message })
-      return { ok: false, error: e.message }
-    }
-  })
+  ipcMain.handle('recording:start', startRecording)
+  ipcMain.handle('recording:stop', stopRecording)
 
   ipcMain.handle('recording:pause', () => {
     try {

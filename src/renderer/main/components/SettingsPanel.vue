@@ -104,6 +104,19 @@
 
     <hr class="settings-divider">
 
+    <div class="settings-section-header">
+      <h3>{{ $t('settings.autoRecord.title') }}</h3>
+      <label class="switch">
+        <input type="checkbox" v-model="autoRecordEnabled" @change="onAutoRecordChange">
+        <span class="slider"></span>
+      </label>
+    </div>
+    <div class="settings-form">
+      <p class="settings-hint">{{ $t('settings.autoRecord.hint') }}</p>
+    </div>
+
+    <hr class="settings-divider">
+
     <h3>{{ $t('settings.storage.title') }}</h3>
     <div class="settings-form">
       <label>
@@ -135,6 +148,7 @@ const localeValue = ref(locale.value)
 
 const storagePath = ref('')
 const storageStatus = ref('')
+const autoRecordEnabled = ref(false)
 
 async function selectStorageFolder() {
   try {
@@ -167,6 +181,12 @@ async function onLocaleChange() {
   } catch {}
 }
 
+async function onAutoRecordChange() {
+  try {
+    await window.electronAPI.setAutoRecord(autoRecordEnabled.value)
+  } catch {}
+}
+
 const currentModel = computed(() =>
   whisper.availableModels.find((m: any) => m.value === whisper.modelName)
 )
@@ -188,6 +208,11 @@ onMounted(async () => {
   whisper.loadLanguage()
   whisper.loadModelSettings()
   whisper.loadProxy()
+  // Load auto-record setting
+  try {
+    const saved = await window.electronAPI.getAutoRecord()
+    autoRecordEnabled.value = saved.enabled
+  } catch {}
   // Load storage path
   try {
     const saved = await window.electronAPI.getOutputPath()

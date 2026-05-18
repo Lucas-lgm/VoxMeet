@@ -96,6 +96,10 @@
       "save": "Save Proxy",
       "saved": "Proxy setting saved"
     },
+    "autoRecord": {
+      "title": "Auto Record",
+      "hint": "Automatically start recording when microphone activity is detected, and stop after 3 seconds of silence."
+    },
     "storage": {
       "title": "Storage",
       "path": "Recording Storage Path",

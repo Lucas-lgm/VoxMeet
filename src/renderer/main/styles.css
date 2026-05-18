@@ -391,3 +391,54 @@ html, body {
   white-space: nowrap;
   padding: 8px 16px;
 }
+
+/* Section header with inline toggle (macOS style) */
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0 4px;
+}
+.settings-section-header h3 {
+  margin: 0;
+  padding: 0;
+}
+
+/* Toggle switch for auto-record */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background: #636366;
+  border-radius: 24px;
+  transition: background 0.2s;
+}
+.slider::before {
+  content: '';
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.switch input:checked + .slider {
+  background: #0a84ff;
+}
+.switch input:checked + .slider::before {
+  transform: translateX(20px);
+}

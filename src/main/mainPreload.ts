@@ -67,6 +67,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Tray locale
   setTrayLocale: (locale: string) => ipcRenderer.invoke('tray:set-locale', locale),
 
+  // Auto record
+  getAutoRecord: () => ipcRenderer.invoke('settings:get-auto-record'),
+  setAutoRecord: (enabled: boolean) => ipcRenderer.invoke('settings:set-auto-record', enabled),
+
   // Output path
   getOutputPath: () => ipcRenderer.invoke('settings:get-output-path'),
   setOutputPath: (outputPath: string) => ipcRenderer.invoke('settings:set-output-path', outputPath),

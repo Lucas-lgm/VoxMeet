@@ -16,6 +16,7 @@ interface AppSettings {
   proxyUrl?: string
   locale?: string
   outputPath?: string
+  autoRecord?: boolean
 }
 
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json')
@@ -118,6 +119,17 @@ export class SettingsStore {
   async saveOutputPath(outputPath: string): Promise<void> {
     await this.load()
     this.settings.outputPath = outputPath
+    await this.save()
+  }
+
+  async getAutoRecord(): Promise<boolean> {
+    await this.load()
+    return this.settings.autoRecord ?? false
+  }
+
+  async saveAutoRecord(enabled: boolean): Promise<void> {
+    await this.load()
+    this.settings.autoRecord = enabled
     await this.save()
   }
 }

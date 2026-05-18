@@ -19,6 +19,7 @@
     "dev:electron": "wait-on dist/main/index.js dist/renderer/renderer.js && nodemon --watch dist --exec \"NODE_OPTIONS=\"--force-node-api-uncaught-exceptions-policy=true\" electron . --dev\"",
     "clean": "rm -rf dist",
     "package": "NODE_ENV=production npm run clean && tsc -p tsconfig.main.json --sourceMap false && cp -r src/main/locales dist/main/locales && webpack --config webpack.renderer.js --mode production && electron-builder",
+    "deploy:landing": "cd landing && git init && git add -A && git commit -m \"update landing page\" && git push -f https://github.com/Lucas-lgm/VoxMeet.git HEAD:gh-pages && rm -rf .git",
     "check-permissions": "node scripts/check-permissions.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
