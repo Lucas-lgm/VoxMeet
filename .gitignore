@@ -90,3 +90,6 @@ third_party/
 
 # Dev docs / design docs
 docs/superpowers/
+
+# Whisper.cpp source (prebuilt binary used instead)
+whisper/whisper.cpp/
