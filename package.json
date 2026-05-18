@@ -6,6 +6,7 @@
   "scripts": {
     "build": "npm run build:main && npm run build:renderer",
     "rebuild:native": "cd native/modules/recorder && node-gyp rebuild",
+    "build:whisper": "bash scripts/setup-whisper.sh",
     "postinstall": "cd native/modules/recorder && npm install --production",
     "build:main": "tsc -p tsconfig.main.json && cp -r src/main/locales dist/main/locales",
     "build:renderer": "NODE_ENV=development webpack --config webpack.renderer.js",
