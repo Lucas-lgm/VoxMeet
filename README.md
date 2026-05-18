@@ -16,6 +16,10 @@ Voice meetings are everywhere — work calls, interviews, lectures, voice memos.
 
 This app records **both system audio and microphone** with echo cancellation, transcribes locally via Whisper.cpp (no usage fees, private, offline), and sends the transcript to any LLM provider you configure for summaries.
 
+## Demo
+
+<video src="docs/demo.mp4" controls width="100%" max-width="800px"></video>
+
 ## Features
 
 - **macOS System Audio Capture** — Records system output and microphone simultaneously via Core Audio Aggregate Device + Audio Tap. No virtual audio drivers needed.
