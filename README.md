@@ -32,12 +32,11 @@ This app records **both system audio and microphone** with echo cancellation, tr
 ## Quick Start
 
 ```bash
-npm install
+npm install                    # Install JS dependencies
+npm run rebuild:native         # Build C++ native module
 npm run build:whisper          # Compile whisper.cpp → whisper/whisper-cli
 npm run dev                    # Compile TS + Webpack, launch Electron with DevTools
 ```
-
-> `npm install` automatically loads the prebuilt native module (arm64). Only run `npm run rebuild:native` if you've modified C++ code.
 
 Requires macOS 14+, Node.js 18+, Python 3, CMake, and Xcode Command Line Tools.
 
