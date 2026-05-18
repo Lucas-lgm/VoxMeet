@@ -1,6 +1,7 @@
 import { ipcMain, Notification, dialog, shell } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs/promises'
+import * as os from 'os'
 import { AISummaryClient } from '../ai/AISummaryClient'
 import { exportToMarkdown } from '../ai/MarkdownExport'
 import { SettingsStore } from '../store/SettingsStore'
@@ -133,8 +134,9 @@ export function setupAIHandlers() {
   // Output path settings
   ipcMain.handle('settings:get-output-path', async () => {
     try {
-      const path = await settingsStore.getOutputPath()
-      return { outputPath: path || '' }
+      const customPath = await settingsStore.getOutputPath()
+      const defaultPath = path.join(os.homedir(), 'Documents', 'MeetingNotes')
+      return { outputPath: customPath || defaultPath }
     } catch { return { outputPath: '' } }
   })
 

@@ -41,6 +41,7 @@
       class="context-menu"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
     >
+      <div class="context-menu-item" @click.stop="openMeetingFolder">{{ $t('sidebar.openFolder') }}</div>
       <div class="context-menu-item" @click.stop="renameMeeting">{{ $t('sidebar.rename') }}</div>
       <div class="context-menu-item danger" @click.stop="deleteMeeting">{{ $t('sidebar.delete') }}</div>
     </div>
@@ -77,6 +78,15 @@ function openContextMenu(e: MouseEvent, m: any) {
   contextMenu.x = e.clientX
   contextMenu.y = e.clientY
   contextMenu.meeting = m
+}
+
+async function openMeetingFolder() {
+  const m = contextMenu.meeting
+  contextMenu.show = false
+  if (!m?.dir) return
+  try {
+    await window.electronAPI.openFolder(m.dir)
+  } catch {}
 }
 
 async function renameMeeting() {

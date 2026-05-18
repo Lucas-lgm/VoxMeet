@@ -23,9 +23,9 @@ export function setupMeetingHistoryIPC() {
         try {
           const data = await fs.readFile(metaPath, 'utf-8')
           const meta = JSON.parse(data)
-          meetings.push({ id: entry.name, ...meta })
+          meetings.push({ id: entry.name, ...meta, dir: path.join(MEETINGS_DIR, entry.name) })
         } catch {
-          meetings.push({ id: entry.name, date: entry.name, title: entry.name, recordingPath: '', state: 'unknown' })
+          meetings.push({ id: entry.name, date: entry.name, title: entry.name, recordingPath: '', state: 'unknown', dir: path.join(MEETINGS_DIR, entry.name) })
         }
       }
 

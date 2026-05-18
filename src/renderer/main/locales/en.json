@@ -21,6 +21,7 @@
     "title": "Meetings",
     "refresh": "Refresh list",
     "noMeetings": "No meeting records",
+    "openFolder": "Open Folder",
     "rename": "Rename",
     "delete": "Delete",
     "confirmDelete": "Delete 「{title}」?",
