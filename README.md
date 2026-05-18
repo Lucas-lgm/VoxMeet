@@ -18,7 +18,7 @@ This app records **both system audio and microphone** with echo cancellation, tr
 
 ## Demo
 
-<video src="https://github.com/Lucas-lgm/VoxMeet/raw/main/docs/demo.mp4" controls style="width:100%;max-width:800px;border-radius:12px"></video>
+![Demo](docs/demo.gif)
 
 ## Features
 
