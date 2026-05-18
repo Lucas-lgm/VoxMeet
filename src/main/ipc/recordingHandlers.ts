@@ -21,7 +21,8 @@ async function runTranscription(meetingDir: string, whisperPath: string) {
     const result = await whisperClient.transcribe(whisperPath, language)
     const withSpeakers = whisperClient.segmentBySpeakers(result)
 
-    const fileManager = new AudioFileManager()
+    const outputPath = await settingsStore.getOutputPath()
+    const fileManager = new AudioFileManager(outputPath || undefined)
     const transcriptionPath = fileManager.getTranscriptionPath(meetingDir)
     await writeFile(transcriptionPath, JSON.stringify({ result, withSpeakers }, null, 2))
 
@@ -55,7 +56,8 @@ export function setupRecordingIPC() {
       if (!controller?.initialize()) {
         return { ok: false, error: 'Failed to initialize recorder' }
       }
-      const fileManager = new AudioFileManager()
+      const outputPath = await settingsStore.getOutputPath()
+      const fileManager = new AudioFileManager(outputPath || undefined)
       session = new MeetingSession(controller, fileManager)
       const ok = await session.startRecording()
       if (ok) {

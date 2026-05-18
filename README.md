@@ -33,9 +33,10 @@ This app records **both system audio and microphone** with echo cancellation, tr
 
 ```bash
 npm install
-npm run rebuild:native       # Build C++ native module
-npm run dev                  # Compile TS + C++, launch Electron with DevTools
+npm run dev                  # Compile TS + Webpack, launch Electron with DevTools
 ```
+
+> `npm install` automatically loads the prebuilt native module (arm64). Only run `npm run rebuild:native` if you've modified C++ code.
 
 Requires macOS 14+, Node.js 18+, Python 3, and Xcode Command Line Tools.
 

@@ -94,6 +94,15 @@
       "hint": "Network proxy for model downloads. Leave empty to use the HTTPS_PROXY environment variable.",
       "save": "Save Proxy",
       "saved": "Proxy setting saved"
+    },
+    "storage": {
+      "title": "Storage",
+      "path": "Recording Storage Path",
+      "placeholder": "~/Documents/MeetingNotes",
+      "select": "Select Folder",
+      "open": "Open Folder",
+      "saved": "Storage path saved",
+      "changed": "Storage path changed. New recordings will be saved to the new location."
     }
   },
   "common": {

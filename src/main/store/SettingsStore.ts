@@ -15,6 +15,7 @@ interface AppSettings {
   whisperLanguage?: string
   proxyUrl?: string
   locale?: string
+  outputPath?: string
 }
 
 const SETTINGS_PATH = path.join(app.getPath('userData'), 'settings.json')
@@ -106,6 +107,17 @@ export class SettingsStore {
   async saveLocale(locale: string): Promise<void> {
     await this.load()
     this.settings.locale = locale
+    await this.save()
+  }
+
+  async getOutputPath(): Promise<string | undefined> {
+    await this.load()
+    return this.settings.outputPath
+  }
+
+  async saveOutputPath(outputPath: string): Promise<void> {
+    await this.load()
+    this.settings.outputPath = outputPath
     await this.save()
   }
 }

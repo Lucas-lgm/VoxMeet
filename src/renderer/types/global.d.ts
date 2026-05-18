@@ -140,6 +140,14 @@ export interface ElectronAPI {
 
   // Tray locale
   setTrayLocale: (locale: string) => Promise<{ ok: boolean }>
+
+  // Output path
+  getOutputPath: () => Promise<{ outputPath: string }>
+  setOutputPath: (outputPath: string) => Promise<{ ok: boolean; error?: string }>
+
+  // Shell utilities
+  openFolder: (folderPath: string) => Promise<{ ok: boolean; error?: string }>
+  selectFolder: () => Promise<{ canceled: boolean; path: string }>
 }
 
 declare global {

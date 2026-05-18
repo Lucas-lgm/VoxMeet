@@ -1,12 +1,18 @@
 import { ipcMain } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs/promises'
+import { SettingsStore } from '../store/SettingsStore'
 
-const MEETINGS_DIR = path.join(require('os').homedir(), 'Documents', 'MeetingNotes')
+async function getMeetingsDir(): Promise<string> {
+  const store = new SettingsStore()
+  const customPath = await store.getOutputPath()
+  return customPath || path.join(require('os').homedir(), 'Documents', 'MeetingNotes')
+}
 
 export function setupMeetingHistoryIPC() {
   ipcMain.handle('meeting:list', async () => {
     try {
+      const MEETINGS_DIR = await getMeetingsDir()
       await fs.mkdir(MEETINGS_DIR, { recursive: true })
       const entries = await fs.readdir(MEETINGS_DIR, { withFileTypes: true })
       const meetings: any[] = []
@@ -32,6 +38,7 @@ export function setupMeetingHistoryIPC() {
 
   ipcMain.handle('meeting:get', async (_event, meetingId: string) => {
     try {
+      const MEETINGS_DIR = await getMeetingsDir()
       const dir = path.join(MEETINGS_DIR, meetingId)
       const metaPath = path.join(dir, 'metadata.json')
       const data = await fs.readFile(metaPath, 'utf-8')
@@ -52,6 +59,7 @@ export function setupMeetingHistoryIPC() {
 
   ipcMain.handle('meeting:delete', async (_event, meetingId: string) => {
     try {
+      const MEETINGS_DIR = await getMeetingsDir()
       const dir = path.join(MEETINGS_DIR, meetingId)
       await fs.rm(dir, { recursive: true, force: true })
       return { ok: true }
@@ -62,6 +70,7 @@ export function setupMeetingHistoryIPC() {
 
   ipcMain.handle('meeting:rename', async (_event, meetingId: string, title: string) => {
     try {
+      const MEETINGS_DIR = await getMeetingsDir()
       const dir = path.join(MEETINGS_DIR, meetingId)
       const metaPath = path.join(dir, 'metadata.json')
       const data = await fs.readFile(metaPath, 'utf-8')

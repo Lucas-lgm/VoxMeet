@@ -101,6 +101,21 @@
       <button class="action-btn" @click="whisper.saveProxy()">{{ $t('settings.proxy.save') }}</button>
       <p id="proxy-status" :style="{ color: '#30d158' }">{{ whisper.proxyStatus }}</p>
     </div>
+
+    <hr class="settings-divider">
+
+    <h3>{{ $t('settings.storage.title') }}</h3>
+    <div class="settings-form">
+      <label>
+        <span>{{ $t('settings.storage.path') }}</span>
+        <div class="storage-path-row">
+          <input type="text" v-model="storagePath" :placeholder="$t('settings.storage.placeholder')" readonly>
+          <button class="action-btn" @click="selectStorageFolder">{{ $t('settings.storage.select') }}</button>
+          <button class="action-btn" @click="openStorageFolder" :disabled="!storagePath">{{ $t('settings.storage.open') }}</button>
+        </div>
+      </label>
+      <p id="storage-status" style="color: #30d158">{{ storageStatus }}</p>
+    </div>
   </div>
 </template>
 
@@ -117,6 +132,31 @@ const modelDownload = inject<any>('modelDownload')!
 const taskManager = inject<any>('taskManager')!
 
 const localeValue = ref(locale.value)
+
+const storagePath = ref('')
+const storageStatus = ref('')
+
+async function selectStorageFolder() {
+  try {
+    const result = await window.electronAPI.selectFolder()
+    if (!result.canceled && result.path) {
+      storagePath.value = result.path
+      await window.electronAPI.setOutputPath(result.path)
+      storageStatus.value = locale.value === 'zh'
+        ? '存储路径已更改。新的录音将保存到新位置。'
+        : 'Storage path changed. New recordings will be saved to the new location.'
+      setTimeout(() => { storageStatus.value = '' }, 4000)
+    }
+  } catch {}
+}
+
+async function openStorageFolder() {
+  if (storagePath.value) {
+    try {
+      await window.electronAPI.openFolder(storagePath.value)
+    } catch {}
+  }
+}
 
 async function onLocaleChange() {
   locale.value = localeValue.value
@@ -148,6 +188,13 @@ onMounted(async () => {
   whisper.loadLanguage()
   whisper.loadModelSettings()
   whisper.loadProxy()
+  // Load storage path
+  try {
+    const saved = await window.electronAPI.getOutputPath()
+    if (saved.outputPath) {
+      storagePath.value = saved.outputPath
+    }
+  } catch {}
   // Load persisted locale
   try {
     const saved = await window.electronAPI.getLocale()

@@ -376,3 +376,18 @@ html, body {
 }
 .settings-hint a { color: #0a84ff; cursor: pointer; text-decoration: none; }
 .settings-hint a:hover { text-decoration: underline; }
+
+.storage-path-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.storage-path-row input {
+  flex: 1;
+  cursor: default;
+  background: #1c1c1e;
+}
+.storage-path-row .action-btn {
+  white-space: nowrap;
+  padding: 8px 16px;
+}

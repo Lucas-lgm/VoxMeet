@@ -1,4 +1,4 @@
-import { ipcMain, Notification } from 'electron'
+import { ipcMain, Notification, dialog, shell } from 'electron'
 import * as path from 'path'
 import * as fs from 'fs/promises'
 import { AISummaryClient } from '../ai/AISummaryClient'
@@ -127,6 +127,47 @@ export function setupAIHandlers() {
       return { ok: true }
     } catch (e: any) {
       return { ok: false, error: e.message }
+    }
+  })
+
+  // Output path settings
+  ipcMain.handle('settings:get-output-path', async () => {
+    try {
+      const path = await settingsStore.getOutputPath()
+      return { outputPath: path || '' }
+    } catch { return { outputPath: '' } }
+  })
+
+  ipcMain.handle('settings:set-output-path', async (_event, outputPath: string) => {
+    try {
+      await settingsStore.saveOutputPath(outputPath)
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  // Shell utilities
+  ipcMain.handle('shell:open-folder', async (_event, folderPath: string) => {
+    try {
+      await shell.openPath(folderPath)
+      return { ok: true }
+    } catch (e: any) {
+      return { ok: false, error: e.message }
+    }
+  })
+
+  ipcMain.handle('shell:select-folder', async () => {
+    try {
+      const result = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+      })
+      if (result.canceled || result.filePaths.length === 0) {
+        return { canceled: true, path: '' }
+      }
+      return { canceled: false, path: result.filePaths[0] }
+    } catch (e: any) {
+      return { canceled: true, path: '', error: e.message }
     }
   })
 

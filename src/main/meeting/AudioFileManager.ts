@@ -1,11 +1,17 @@
 import * as path from 'path'
 import * as fs from 'fs/promises'
 
-const MEETINGS_DIR = path.join(require('os').homedir(), 'Documents', 'MeetingNotes')
+const DEFAULT_MEETINGS_DIR = path.join(require('os').homedir(), 'Documents', 'MeetingNotes')
 
 export class AudioFileManager {
+  private basePath: string
+
+  constructor(basePath?: string) {
+    this.basePath = basePath || DEFAULT_MEETINGS_DIR
+  }
+
   async ensureMeetingDir(meetingId: string): Promise<string> {
-    const dir = path.join(MEETINGS_DIR, meetingId)
+    const dir = path.join(this.basePath, meetingId)
     await fs.mkdir(dir, { recursive: true })
     return dir
   }

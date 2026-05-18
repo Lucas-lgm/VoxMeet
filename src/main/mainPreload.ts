@@ -67,6 +67,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Tray locale
   setTrayLocale: (locale: string) => ipcRenderer.invoke('tray:set-locale', locale),
 
-  // Utility
+  // Output path
+  getOutputPath: () => ipcRenderer.invoke('settings:get-output-path'),
+  setOutputPath: (outputPath: string) => ipcRenderer.invoke('settings:set-output-path', outputPath),
+
+  // Shell utilities
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+  openFolder: (folderPath: string) => ipcRenderer.invoke('shell:open-folder', folderPath),
+  selectFolder: () => ipcRenderer.invoke('shell:select-folder'),
 })

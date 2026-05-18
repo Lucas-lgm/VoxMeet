@@ -94,6 +94,15 @@
       "hint": "用于模型下载的网络代理。留空时自动读取 <code>HTTPS_PROXY</code> 环境变量。",
       "save": "保存代理设置",
       "saved": "代理设置已保存"
+    },
+    "storage": {
+      "title": "存储设置",
+      "path": "录音存储路径",
+      "placeholder": "~/Documents/MeetingNotes",
+      "select": "选择文件夹",
+      "open": "打开文件夹",
+      "saved": "存储路径已保存",
+      "changed": "存储路径已更改。新的录音将保存到新位置。"
     }
   },
   "common": {
