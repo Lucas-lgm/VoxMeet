@@ -2,22 +2,29 @@
 # Deploy landing/ directory to gh-pages branch
 set -euo pipefail
 
+ROOT=$(git rev-parse --show-toplevel)
 WORKTREE=$(mktemp -d)
-trap 'rm -rf "$WORKTREE"; git worktree prune' EXIT
+trap 'rm -rf "$WORKTREE"; git -C "$ROOT" worktree prune' EXIT
 
 git fetch origin gh-pages 2>/dev/null || true
-git worktree add "$WORKTREE" gh-pages 2>/dev/null ||
-  git worktree add --orphan "$WORKTREE" gh-pages
+
+if git rev-parse --verify gh-pages >/dev/null 2>&1; then
+  git -C "$ROOT" worktree add "$WORKTREE" gh-pages
+else
+  git -C "$ROOT" worktree add --orphan "$WORKTREE"
+  git -C "$WORKTREE" checkout --orphan gh-pages
+fi
 
 # Sync landing content into worktree
-rsync -a --delete landing/ "$WORKTREE"/
+rsync -a --delete --exclude=.git "$ROOT/landing/" "$WORKTREE"/
 
-cd "$WORKTREE"
-git add -A
-if git diff --cached --quiet; then
+git -C "$WORKTREE" add -A
+if git -C "$WORKTREE" diff --cached --quiet; then
   echo "No changes to deploy."
+  git -C "$ROOT" worktree remove "$WORKTREE"
   exit 0
 fi
-git commit -m "deploy: update landing page"
-git push origin gh-pages
+git -C "$WORKTREE" commit -m "deploy: update landing page"
+git -C "$WORKTREE" push origin gh-pages
+git -C "$ROOT" worktree remove "$WORKTREE"
 echo "Deployed!"
