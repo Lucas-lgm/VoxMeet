@@ -10,9 +10,9 @@ interface AISettings {
 }
 
 export class AISummaryClient {
-  async generateSummary(fullText: string, segments: Array<{ speaker: string; text: string }>, settings: AISettings): Promise<any> {
+  async generateSummary(fullText: string, segments: Array<{ speaker: string; text: string }>, settings: AISettings, locale?: string): Promise<any> {
     const { buildSummaryPromptWithSpeakers } = require('./PromptTemplates')
-    const prompt = buildSummaryPromptWithSpeakers(fullText, segments)
+    const prompt = buildSummaryPromptWithSpeakers(fullText, segments, locale)
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

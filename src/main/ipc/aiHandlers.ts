@@ -18,7 +18,8 @@ export function setupAIHandlers() {
         return { ok: false, error: 'Configure your AI API Key in Settings first' }
       }
 
-      const summary = await aiClient.generateSummary(fullText, segments || [], aiSettings)
+      const locale = await settingsStore.getLocale()
+      const summary = await aiClient.generateSummary(fullText, segments || [], aiSettings, locale)
       const meetingDate = path.basename(meetingDir)
 
       const markdown = exportToMarkdown(summary, meetingDate, new Date().toLocaleString('zh-CN'))
