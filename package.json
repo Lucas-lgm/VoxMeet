@@ -5,7 +5,7 @@
   "main": "dist/main/index.js",
   "scripts": {
     "build": "npm run build:main && npm run build:renderer",
-    "build:main": "tsc -p tsconfig.main.json",
+    "build:main": "tsc -p tsconfig.main.json && cp -r src/main/locales dist/main/locales",
     "build:renderer": "NODE_ENV=development webpack --config webpack.renderer.js",
     "build:watch": "concurrently \"npm run build:main -- --watch\" \"npm run build:renderer -- --watch\"",
     "start": "npm run build && electron .",
@@ -15,7 +15,7 @@
     "dev:start": "concurrently \"npm run build:watch\" \"npm run dev:electron\"",
     "dev:electron": "wait-on dist/main/index.js dist/renderer/renderer.js && nodemon --watch dist --exec \"NODE_OPTIONS=\"--force-node-api-uncaught-exceptions-policy=true\" electron . --dev\"",
     "clean": "rm -rf dist",
-    "package": "NODE_ENV=production npm run clean && tsc -p tsconfig.main.json --sourceMap false && webpack --config webpack.renderer.js --mode production && electron-builder",
+    "package": "NODE_ENV=production npm run clean && tsc -p tsconfig.main.json --sourceMap false && cp -r src/main/locales dist/main/locales && webpack --config webpack.renderer.js --mode production && electron-builder",
     "check-permissions": "node scripts/check-permissions.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

@@ -17,7 +17,7 @@ export function useAISettings() {
 
   async function saveSettings() {
     try {
-      const result = await window.electronAPI.saveAISettings(settings.value)
+      const result = await window.electronAPI.saveAISettings({ ...settings.value })
       if (result?.ok) {
         status.value = t('settings.saved')
         statusColor.value = '#30d158'

@@ -68,7 +68,7 @@
     <div class="settings-form">
       <label>
         <span>{{ $t('settings.model.select') }}</span>
-        <select v-model="whisper.modelName">
+        <select v-model="whisper.modelName" @change="whisper.saveModel()">
           <option v-for="m in whisper.availableModels" :key="m.value" :value="m.value">
             {{ m.label }} {{ whisper.isDownloaded(m.value) ? '✅' : '' }}
           </option>

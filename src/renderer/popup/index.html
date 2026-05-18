@@ -117,9 +117,11 @@
     // Stop recording
     endBtn.addEventListener('click', async () => {
       try {
+        endBtn.innerText = '⏳'
         await window.electronAPI.stopRecording()
         window.electronAPI.setRecordingState(false)
         resetUI()
+        try { new Notification('Recording Complete', { body: 'Recording saved, starting transcription...' }) } catch {}
       } catch (e) { console.error('stop error:', e) }
     })
 

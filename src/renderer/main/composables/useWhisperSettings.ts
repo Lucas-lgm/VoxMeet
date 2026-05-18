@@ -44,6 +44,12 @@ export function useWhisperSettings() {
     return downloadedModels.value.includes(name)
   }
 
+  async function saveModel() {
+    try {
+      await window.electronAPI.setWhisperModel(modelName.value)
+    } catch {}
+  }
+
   async function saveProxy() {
     try {
       const result = await window.electronAPI.setProxyUrl(proxyUrl.value)
@@ -66,7 +72,7 @@ export function useWhisperSettings() {
     modelName, availableModels, downloadedModels,
     proxyUrl, proxyStatus,
     loadLanguage, saveLanguage,
-    loadModelSettings, isDownloaded,
+    loadModelSettings, isDownloaded, saveModel,
     loadProxy, saveProxy,
   }
 }
