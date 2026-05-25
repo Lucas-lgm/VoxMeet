@@ -6,6 +6,7 @@
 #include "mac_permission.h"
 #include "logger.h"
 #include "resampler.h"
+#include "ducker.h"
 
 #import <AVFoundation/AVFoundation.h>
 
@@ -119,6 +120,7 @@ private:
 
     float                        mic_gain_{1.0f};
     float                        sys_gain_{1.0f};
+    Ducker                       ducker_;
 };
 
 // ============================================================================
@@ -548,11 +550,14 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             peakAec = std::max(peakAec, std::fabs(aecOut[i]));
         }
 
-        // Mix: AEC output (already processed through AEC → AGC → ANS pipeline)
-        // with system audio at natural level for a complete conversation recording.
+        // Ducking: sidechain aecOut → attenuate far-end
+        float duckGain = ducker_.Process(aecOut.data(), chunkSize);
+
+        // Mix: 3A-processed near-end + ducked far-end
         {
+            float effSysGain = sys_gain_ * duckGain;
             for (int i = 0; i < chunkSize; ++i) {
-                float v = aecOut[i] * mic_gain_ + farChunk[i] * sys_gain_;
+                float v = aecOut[i] * mic_gain_ + farChunk[i] * effSysGain;
                 mixed[static_cast<size_t>(offset + i)] = v;
                 peakMix = std::max(peakMix, std::fabs(v));
             }

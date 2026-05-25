@@ -18,7 +18,8 @@
         "src/webrtc_aec_wrapper.cpp",
         "src/wav_file_writer.cpp",
         "src/aec_recorder.mm",
-        "src/resampler.cpp"
+        "src/resampler.cpp",
+        "src/ducker.cpp"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",

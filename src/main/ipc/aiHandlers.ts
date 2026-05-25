@@ -131,22 +131,22 @@ export function setupAIHandlers() {
     }
   })
 
-  // Auto record setting
-  ipcMain.handle('settings:get-auto-record', async () => {
-    try {
-      const enabled = await settingsStore.getAutoRecord()
-      return { enabled }
-    } catch { return { enabled: false } }
-  })
-
-  ipcMain.handle('settings:set-auto-record', async (_event, enabled: boolean) => {
-    try {
-      await settingsStore.saveAutoRecord(enabled)
-      return { ok: true }
-    } catch (e: any) {
-      return { ok: false, error: e.message }
-    }
-  })
+  // // Auto record setting (disabled)
+  // ipcMain.handle('settings:get-auto-record', async () => {
+  //   try {
+  //     const enabled = await settingsStore.getAutoRecord()
+  //     return { enabled }
+  //   } catch { return { enabled: false } }
+  // })
+  //
+  // ipcMain.handle('settings:set-auto-record', async (_event, enabled: boolean) => {
+  //   try {
+  //     await settingsStore.saveAutoRecord(enabled)
+  //     return { ok: true }
+  //   } catch (e: any) {
+  //     return { ok: false, error: e.message }
+  //   }
+  // })
 
   // Output path settings
   ipcMain.handle('settings:get-output-path', async () => {

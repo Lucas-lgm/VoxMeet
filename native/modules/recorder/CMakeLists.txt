@@ -72,6 +72,7 @@ add_executable(recorder
     src/webrtc_aec_wrapper.cpp
     src/wav_file_writer.cpp
     src/aec_recorder.mm
+    src/ducker.cpp
 )
 
 # Set Objective-C++ compile options

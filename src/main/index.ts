@@ -147,41 +147,41 @@ app.whenReady().then(async () => {
   // Start mic monitor daemon
   micMonitorDaemon.start()
 
-  // Auto-record: listen for mic activity
-  let autoRecordTimer: ReturnType<typeof setTimeout> | null = null
-  let autoRecordActive = false
-
-  micMonitorDaemon.on('statusChange', async (status: any) => {
-    if (autoRecordTimer) {
-      clearTimeout(autoRecordTimer)
-      autoRecordTimer = null
-    }
-
-    try {
-      const settings = new SettingsStore()
-      const enabled = await settings.getAutoRecord()
-      if (!enabled) return
-    } catch { return }
-
-    if (status.status === 'ON' && !autoRecordActive) {
-      // Debounce: wait 1s before starting (avoid false triggers)
-      autoRecordTimer = setTimeout(async () => {
-        logger.info('Auto-record: mic activated, starting recording')
-        autoRecordActive = true
-        popupWindow.setRecording(true)
-        popupWindow.show()
-        await startRecording()
-      }, 1000)
-    } else if (status.status === 'OFF' && autoRecordActive) {
-      // Debounce: wait 3s before stopping (avoid stopping between sentences)
-      autoRecordTimer = setTimeout(async () => {
-        logger.info('Auto-record: mic deactivated, stopping recording')
-        autoRecordActive = false
-        await stopRecording()
-        popupWindow.setRecording(false)
-      }, 3000)
-    }
-  })
+  // // Auto-record: listen for mic activity (disabled)
+  // let autoRecordTimer: ReturnType<typeof setTimeout> | null = null
+  // let autoRecordActive = false
+  //
+  // micMonitorDaemon.on('statusChange', async (status: any) => {
+  //   if (autoRecordTimer) {
+  //     clearTimeout(autoRecordTimer)
+  //     autoRecordTimer = null
+  //   }
+  //
+  //   try {
+  //     const settings = new SettingsStore()
+  //     const enabled = await settings.getAutoRecord()
+  //     if (!enabled) return
+  //   } catch { return }
+  //
+  //   if (status.status === 'ON' && !autoRecordActive) {
+  //     // Debounce: wait 1s before starting (avoid false triggers)
+  //     autoRecordTimer = setTimeout(async () => {
+  //       logger.info('Auto-record: mic activated, starting recording')
+  //       autoRecordActive = true
+  //       popupWindow.setRecording(true)
+  //       popupWindow.show()
+  //       await startRecording()
+  //     }, 1000)
+  //   } else if (status.status === 'OFF' && autoRecordActive) {
+  //     // Debounce: wait 3s before stopping (avoid stopping between sentences)
+  //     autoRecordTimer = setTimeout(async () => {
+  //       logger.info('Auto-record: mic deactivated, stopping recording')
+  //       autoRecordActive = false
+  //       await stopRecording()
+  //       popupWindow.setRecording(false)
+  //     }, 3000)
+  //   }
+  // })
 
   logger.info('App started (tray mode)')
 })
