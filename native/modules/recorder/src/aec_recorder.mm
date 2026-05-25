@@ -117,8 +117,8 @@ private:
     std::atomic<bool>            capturing_{false};
     std::atomic<bool>            disposing_{false};
 
-    float                        mic_gain_{3.0f};
-    float                        sys_gain_{0.5f};
+    float                        mic_gain_{1.0f};
+    float                        sys_gain_{1.0f};
 };
 
 // ============================================================================
@@ -324,9 +324,9 @@ bool AECRecorder::Impl::StartCapture() {
         Logger::info("AECRecorder: capture started (hasSystemAudio=%s)",
                      hasSystemAudio ? "yes" : "no");
 
-        // Open debug files
-        debug_mic_file_ = fopen("/tmp/aec_debug_mic.f32", "wb");
-        debug_mixed_file_ = fopen("/tmp/aec_debug_mixed.f32", "wb");
+        // Open debug files (disabled by default — uncomment for AEC debugging)
+        // debug_mic_file_ = fopen("/tmp/aec_debug_mic.f32", "wb");
+        // debug_mixed_file_ = fopen("/tmp/aec_debug_mixed.f32", "wb");
 
         return true;
     }
@@ -355,9 +355,9 @@ void AECRecorder::Impl::StopCapture() {
 
         Logger::info("AECRecorder: capture stopped");
 
-        // Close debug files
-        if (debug_mic_file_) { fclose(debug_mic_file_); debug_mic_file_ = nullptr; }
-        if (debug_mixed_file_) { fclose(debug_mixed_file_); debug_mixed_file_ = nullptr; }
+        // Close debug files (disabled — uncomment for AEC debugging)
+        // if (debug_mic_file_) { fclose(debug_mic_file_); debug_mic_file_ = nullptr; }
+        // if (debug_mixed_file_) { fclose(debug_mixed_file_); debug_mixed_file_ = nullptr; }
     }
 }
 
@@ -504,14 +504,14 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
     }
     if (aecFrames <= 0) return;
 
-    // Write raw mic to debug file (every callback)
-    if (debug_mic_file_) {
-        fwrite(micRaw, sizeof(float), aecFrames, debug_mic_file_);
-        fflush(debug_mic_file_);
-    }
+    // Write raw mic to debug file (disabled — uncomment for AEC debugging)
+    // if (debug_mic_file_) {
+    //     fwrite(micRaw, sizeof(float), aecFrames, debug_mic_file_);
+    //     fflush(debug_mic_file_);
+    // }
 
     // ---------- Chunked processing -----------------------------------------
-    // AEC works in 10ms blocks (kFramesPerBuffer frames at kSampleRate).
+    // 3A pipeline operates on 10ms blocks (kFramesPerBuffer = 480 @ 48kHz).
     // The mic tap may deliver larger blocks, so we process in chunks.
     const int chunkSize = kFramesPerBuffer;  // 480 frames = 10ms
     int numChunks = aecFrames / chunkSize;
@@ -539,23 +539,20 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             peakFar = std::max(peakFar, std::fabs(farChunk[i]));
         }
 
-        // Process AEC on this chunk (kept for diagnostic peak tracking)
+        // Process through 3A pipeline (AEC → AGC → ANS)
         std::fill(aecOut.begin(), aecOut.end(), 0.0f);
         aec_.Process(micChunk, farChunk.data(), aecOut.data(), chunkSize);
 
-        // Track peaks after AEC
+        // Track peaks after 3A processing
         for (int i = 0; i < chunkSize; ++i) {
             peakAec = std::max(peakAec, std::fabs(aecOut[i]));
         }
 
-        // Mix: blend AEC-processed mic with a touch of raw mic to prevent
-        // complete suppression when echo cancellation is aggressive.
-        // 60% AEC output (echo removed) + 40% raw mic (always audible).
+        // Mix: AEC output (already processed through AEC → AGC → ANS pipeline)
+        // with system audio at natural level for a complete conversation recording.
         {
-            constexpr float kAecBlend = 0.6f, kRawBlend = 0.4f;
             for (int i = 0; i < chunkSize; ++i) {
-                float v = (aecOut[i] * kAecBlend + micChunk[i] * kRawBlend) * mic_gain_ +
-                          farChunk[i] * sys_gain_;
+                float v = aecOut[i] * mic_gain_ + farChunk[i] * sys_gain_;
                 mixed[static_cast<size_t>(offset + i)] = v;
                 peakMix = std::max(peakMix, std::fabs(v));
             }
@@ -567,16 +564,16 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
         peakMic = std::max(peakMic, std::fabs(micRaw[i]));
     }
 
-    // Write debug mixed file
-    if (debug_mixed_file_) {
-        fwrite(mixed.data(), sizeof(float), aecFrames, debug_mixed_file_);
-        fflush(debug_mixed_file_);
-    }
+    // Write debug mixed file (disabled — uncomment for AEC debugging)
+    // if (debug_mixed_file_) {
+    //     fwrite(mixed.data(), sizeof(float), aecFrames, debug_mixed_file_);
+    //     fflush(debug_mixed_file_);
+    // }
 
     // Diagnose every 5 callbacks (~500ms)
     static int logCounter = 0;
     if (++logCounter % 5 == 0) {
-        Logger::info("AEC: mic=%.6f far=%.6f aec=%.6f mix=%.6f chunks=%d ringAvail=%zu",
+        Logger::info("3A: mic=%.6f far=%.6f out=%.6f mix=%.6f chunks=%d ringAvail=%zu",
                      peakMic, peakFar, peakAec, peakMix, numChunks, far_ring_buffer_.available_read());
     }
 

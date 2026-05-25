@@ -26,15 +26,22 @@ bool WebRTCAECWrapper::Initialize(int sampleRate, int channels) {
         webrtc::AudioProcessing::Config config;
         config.pipeline.multi_channel_render = true;
         config.pipeline.multi_channel_capture = true;
+        // --- 3A pipeline: AEC + AGC + ANS ---
         config.echo_canceller.enabled = true;
-        // Full AEC: more aggressive echo cancellation. Combined with the
-        // 60/40 blend of aecOut + raw mic in the mixer, this removes echo
-        // while keeping the user's voice audible.
         config.echo_canceller.mobile_mode = false;
-        config.gain_controller1.enabled = false;
-        config.gain_controller2.enabled = false;
-        config.high_pass_filter.enabled = false;
-        config.noise_suppression.enabled = false;
+
+        // AGC2: adaptive digital gain control — normalizes mic level after AEC.
+        // Uses the newer AGC2 (replaces legacy gain_controller1).
+        config.gain_controller2.enabled = true;
+        config.gain_controller2.adaptive_digital.enabled = true;
+
+        // Noise suppression: removes stationary background noise (fan, HVAC).
+        config.noise_suppression.enabled = true;
+        config.noise_suppression.level =
+            webrtc::AudioProcessing::Config::NoiseSuppression::kModerate;
+
+        // High-pass filter: removes DC offset and low-frequency rumble.
+        config.high_pass_filter.enabled = true;
 
         auto apm = webrtc::AudioProcessingBuilder()
             .SetConfig(config)

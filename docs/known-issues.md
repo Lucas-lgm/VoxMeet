@@ -1,11 +1,15 @@
 # Known Issues
 
-## AEC Mix Strategy
+## AEC Mix Strategy (FIXED)
 
-**Problem:** Current mix ratio `0.6 * AEC + 0.4 * raw_mic + sys * sys_gain` with `mic_gain_ = 3.0` deviates from industry norms.
+**Status:** Resolved. See changes below.
 
-**Specific issues:**
+**Original problem:** Mix ratio `0.6 * AEC + 0.4 * raw_mic + sys * sys_gain` with `mic_gain_ = 3.0` deviated from industry norms.
 
-1. **40% raw mic contains echo**: `kRawBlend = 0.4` means echo is not fully cancelled, AEC effectiveness is diluted. Best practice is near 0%, with a tunable parameter for debugging.
-2. **mic_gain_ = 3.0 is too high**: Normal mic input doesn't need 3x amplification, prone to clipping. Industry practice is 1.0 or rely on frontend hardware gain / backend normalization.
-3. **debug fwrite/fflush runs synchronously in audio callback**: Slow disk I/O may cause audio dropouts. Should be gated by condition or written asynchronously.
+**Fixes applied:**
+
+1. **40% raw mic removed** — AEC3 has good double-talk performance and doesn't need raw mic blended back. Mix is now `aecOut * mic_gain + far * sys_gain`.
+2. **mic_gain_ default changed to 1.0** — AGC2 (adaptive digital) handles level normalization automatically.
+3. **sys_gain_ default changed to 1.0** — System audio mixed at natural level for balanced conversation recording.
+4. **Debug fwrite/fflush disabled** — Synchronous disk I/O in audio callback caused potential dropouts. Code kept as comments for debugging.
+5. **AGC2 and ANS enabled** — Full 3A pipeline: AEC (echo cancellation) → AGC2 (auto gain) → ANS (noise suppression). HPF also enabled.
