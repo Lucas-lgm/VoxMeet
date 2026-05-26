@@ -73,7 +73,8 @@ private:
     WebRTCAECWrapper             aec_;
     WAVFileWriter                wav_writer_;
     WAVFileWriter                whisper_wav_writer_;
-    WAVFileWriter                debug_aec_writer_;    // AEC output only (no mix, no far-end)
+    WAVFileWriter                debug_aec_writer_;    // AEC output only (echo-cancelled voice)
+    WAVFileWriter                debug_far_writer_;    // far-end reference (system audio tap)
     AudioSystemCapture           system_capture_;
     RingBuffer                   far_ring_buffer_;   // system audio samples
     int                          mic_sample_rate_{0};
@@ -425,6 +426,7 @@ bool AECRecorder::Impl::StartCapture() {
             debug_mic_file_ = fopen("/tmp/debug_mic.f32", "wb");
             debug_mixed_file_ = fopen("/tmp/debug_mixed.f32", "wb");
             debug_aec_writer_.Open("/tmp/debug_aec.wav", kSampleRate, 1, 16);
+            debug_far_writer_.Open("/tmp/debug_far.wav", kSampleRate, 1, 16);
             Logger::info("AECRecorder: debug files enabled (/tmp/debug_*)");
         }
 
@@ -460,6 +462,7 @@ void AECRecorder::Impl::StopCapture() {
         if (debug_mic_file_)    { fclose(debug_mic_file_);    debug_mic_file_    = nullptr; }
         if (debug_mixed_file_)  { fclose(debug_mixed_file_);  debug_mixed_file_  = nullptr; }
         if (debug_aec_writer_.IsOpen()) { debug_aec_writer_.Close(); }
+        if (debug_far_writer_.IsOpen())  { debug_far_writer_.Close(); }
     }
 }
 
@@ -700,6 +703,18 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
                 aecI16[static_cast<size_t>(i)] = static_cast<int16_t>(s * 32767.0f);
             }
             debug_aec_writer_.Write(aecI16.data(), static_cast<size_t>(chunkSize));
+        }
+
+        // Write far-end reference to debug WAV (system audio tap, AEC ref)
+        if (debug_far_writer_.IsOpen()) {
+            std::vector<int16_t> farI16(static_cast<size_t>(chunkSize));
+            for (int i = 0; i < chunkSize; ++i) {
+                float s = farChunk[i];
+                if (s < -1.0f) s = -1.0f;
+                if (s >  1.0f) s =  1.0f;
+                farI16[static_cast<size_t>(i)] = static_cast<int16_t>(s * 32767.0f);
+            }
+            debug_far_writer_.Write(farI16.data(), static_cast<size_t>(chunkSize));
         }
 
         // Ducking: dB-domain compressor on aecOut sidechain.
