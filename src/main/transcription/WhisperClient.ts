@@ -63,7 +63,7 @@ export class WhisperClient {
     if (language) {
       args.push('-l', language)
       if (language === 'zh') {
-        args.push('--prompt', 'The following is the transcript in Simplified Chinese.')
+        args.push('--prompt', '以下是中文转写文字。')
       }
     }
 
