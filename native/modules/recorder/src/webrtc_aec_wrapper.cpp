@@ -37,10 +37,10 @@ bool WebRTCAECWrapper::Initialize(int sampleRate, int channels) {
         // TODO: re-enable with tuned headroom_db and fixed_digital gain if needed.
         config.gain_controller2.enabled = false;
 
-        // Noise suppression: removes stationary background noise (fan, HVAC).
-        config.noise_suppression.enabled = true;
-        config.noise_suppression.level =
-            webrtc::AudioProcessing::Config::NoiseSuppression::kModerate;
+        // Noise suppression: disabled to isolate voice loss issue.
+        // When far-end is loud, residual echo after AEC can confuse the
+        // noise suppressor, causing it to remove voice components.
+        config.noise_suppression.enabled = false;
 
         // High-pass filter: removes DC offset and low-frequency rumble.
         config.high_pass_filter.enabled = true;
