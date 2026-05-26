@@ -31,11 +31,8 @@ bool WebRTCAECWrapper::Initialize(int sampleRate, int channels) {
         config.echo_canceller.mobile_mode = false;
 
         // AGC2: adaptive digital gain control — normalizes mic level after AEC.
-        // Temporarily disabled as it may over-attenuate voice when far-end is loud:
-        // AGC2's VAD can confuse residual echo with speech, causing it to normalize
-        // to the residual echo level instead of the actual voice level.
-        // TODO: re-enable with tuned headroom_db and fixed_digital gain if needed.
-        config.gain_controller2.enabled = false;
+        config.gain_controller2.enabled = true;
+        config.gain_controller2.adaptive_digital.enabled = true;
 
         // Noise suppression: removes stationary background noise (fan, HVAC).
         config.noise_suppression.enabled = true;
