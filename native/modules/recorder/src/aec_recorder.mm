@@ -422,7 +422,6 @@ bool AECRecorder::Impl::StartCapture() {
         Logger::info("AECRecorder: warmup complete");
 
         // 5. Reset dynamic state post-warmup.
-        far_ring_buffer_.clear();
         ducker_.Reset();
         far_level_smooth_ = 0.0f;
         Logger::info("AECRecorder: mic/far RMS ratio: %.3f (%lld samples, diagnostic only)",
