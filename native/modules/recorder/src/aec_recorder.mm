@@ -756,11 +756,11 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             debug_aec_writer_.Write(aecI16.data(), static_cast<size_t>(chunkSize));
         }
 
-        // Write far-end reference to debug WAV (system audio tap, AEC ref)
+        // Write far-end reference to debug WAV (normalized, what AEC receives)
         if (debug_far_writer_.IsOpen()) {
             std::vector<int16_t> farI16(static_cast<size_t>(chunkSize));
             for (int i = 0; i < chunkSize; ++i) {
-                float s = farChunk[i];
+                float s = aecFarRef[i];
                 if (s < -1.0f) s = -1.0f;
                 if (s >  1.0f) s =  1.0f;
                 farI16[static_cast<size_t>(i)] = static_cast<int16_t>(s * 32767.0f);
