@@ -53,6 +53,9 @@ export class WhisperClient {
       '--output-file', outputPrefix,
       '--beam-size', '5',
       '--no-speech-thold', '1.0',
+      '--logprob-thold', '-2.0',
+      '--temperature-inc', '0.4',
+      '--no-context',
     ]
     if (language) {
       args.push('-l', language)
