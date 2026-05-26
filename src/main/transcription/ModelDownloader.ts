@@ -3,7 +3,16 @@ import * as fsp from 'fs/promises'
 import * as https from 'https'
 import * as http from 'http'
 import { ipcMain } from 'electron'
-import { getWhisperModelsDir, getWhisperModelPath, SettingsStore } from '../store/SettingsStore'
+import { execSync } from 'child_process'
+import * as path from 'path'
+import {
+  getWhisperModelsDir,
+  getWhisperModelPath,
+  getSenseVoiceModelsDir,
+  getSenseVoiceModelPath,
+  getSenseVoiceTokensPath,
+  SettingsStore,
+} from '../store/SettingsStore'
 import { createLogger } from '../utils/logger'
 
 const logger = createLogger('ModelDownloader')
@@ -220,10 +229,93 @@ export function setupModelDownloadIPC(): () => void {
     throw new Error(`Model download failed after ${MAX_RETRIES} retries`)
   })
 
+  // --- SenseVoice model download ---
+
+  const SENSEVOICE_MODEL_URL = 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17.tar.bz2'
+
+  ipcMain.handle('sensevoice-model:check', async () => {
+    try {
+      await fsp.access(getSenseVoiceModelPath(), fs.constants.R_OK)
+      await fsp.access(getSenseVoiceTokensPath(), fs.constants.R_OK)
+      return true
+    } catch {
+      return false
+    }
+  })
+
+  ipcMain.handle('sensevoice-model:download', async (event) => {
+    const modelsDir = getSenseVoiceModelsDir()
+    fs.mkdirSync(modelsDir, { recursive: true })
+
+    const tmpArchive = path.join(modelsDir, 'sensevoice-model.tar.bz2.tmp')
+    const destArchive = path.join(modelsDir, 'sensevoice-model.tar.bz2')
+    try { fs.unlinkSync(tmpArchive) } catch {}
+
+    const agent = await getProxyAgent(SENSEVOICE_MODEL_URL)
+
+    const MAX_RETRIES = 3
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        try { fs.unlinkSync(tmpArchive) } catch {}
+
+        let lastReport = 0
+        await downloadWithNodeHttp(SENSEVOICE_MODEL_URL, destArchive, tmpArchive, (downloaded, total) => {
+          if (downloaded - lastReport < 1024 * 512 && downloaded < total) return
+          lastReport = downloaded
+          event.sender.send('sensevoice-model:download-progress', {
+            downloaded,
+            total,
+            percent: total > 0 ? Math.round((downloaded / total) * 100) : 0,
+            phase: 'download',
+          })
+        }, agent)
+
+        // Extract model.int8.onnx and tokens.txt from the tar.bz2 archive
+        event.sender.send('sensevoice-model:download-progress', {
+          downloaded: 0, total: 0, percent: 0, phase: 'extracting',
+        })
+
+        const modelExtracted = path.join(modelsDir, 'model.int8.onnx')
+        const tokensExtracted = path.join(modelsDir, 'tokens.txt')
+
+        // Use tar via child_process to extract specific files
+        // Archive structure: sherpa-onnx-sense-voice-.../model.int8.onnx, tokens.txt
+        execSync(
+          `tar xjf "${destArchive}" --strip-components=1 -C "${modelsDir}" "*/model.int8.onnx" "*/tokens.txt"`,
+          { stdio: 'pipe', timeout: 300000 }
+        )
+
+        // Verify extraction
+        try {
+          await fsp.access(modelExtracted, fs.constants.R_OK)
+          await fsp.access(tokensExtracted, fs.constants.R_OK)
+        } catch {
+          throw new Error('Model extraction failed: model.int8.onnx or tokens.txt not found in archive')
+        }
+
+        // Clean up archive
+        try { fs.unlinkSync(destArchive) } catch {}
+
+        logger.info('SenseVoice model downloaded and extracted', { path: modelExtracted })
+        return { ok: true }
+      } catch (e: any) {
+        logger.warn(`SenseVoice download attempt ${attempt}/${MAX_RETRIES} failed`, { error: e.message })
+        if (attempt < MAX_RETRIES) {
+          await new Promise(r => setTimeout(r, 2000 * attempt))
+        } else {
+          throw e
+        }
+      }
+    }
+    throw new Error(`SenseVoice model download failed after ${MAX_RETRIES} retries`)
+  })
+
   return () => {
     ipcMain.removeHandler('model:list-available')
     ipcMain.removeHandler('model:list-downloaded')
     ipcMain.removeHandler('model:check')
     ipcMain.removeHandler('model:download')
+    ipcMain.removeHandler('sensevoice-model:check')
+    ipcMain.removeHandler('sensevoice-model:download')
   }
 }

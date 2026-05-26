@@ -1,5 +1,6 @@
 import { ipcMain, Notification } from 'electron'
 import { WhisperClient } from '../transcription/WhisperClient'
+import { SenseVoiceClient } from '../transcription/SenseVoiceClient'
 import { SettingsStore } from '../store/SettingsStore'
 import { createLogger } from '../utils/logger'
 import * as fs from 'fs/promises'
@@ -7,18 +8,29 @@ import * as path from 'path'
 
 const logger = createLogger('transcriptionIPC')
 const whisperClient = new WhisperClient()
+const senseVoiceClient = new SenseVoiceClient()
 const settingsStore = SettingsStore.getInstance()
 
 export function setupTranscriptionIPC() {
   ipcMain.handle('transcription:start', async (event, audioPath: string, meetingDir?: string) => {
     try {
+      const engine = await settingsStore.getTranscriptionEngine()
       const language = await settingsStore.getWhisperLanguage()
-      logger.info('Starting transcription', { audioPath, language: language || 'auto' })
+      logger.info('Starting transcription', { engine, audioPath, language: language || 'auto' })
 
-      const result = await whisperClient.transcribe(audioPath, language, (progress) => {
-        event.sender.send('transcription:progress', progress)
-      })
-      const withSpeakers = whisperClient.segmentBySpeakers(result)
+      let result
+      let withSpeakers
+      if (engine === 'sensevoice') {
+        result = await senseVoiceClient.transcribe(audioPath, language, (progress) => {
+          event.sender.send('transcription:progress', progress)
+        })
+        withSpeakers = senseVoiceClient.segmentBySpeakers(result)
+      } else {
+        result = await whisperClient.transcribe(audioPath, language, (progress) => {
+          event.sender.send('transcription:progress', progress)
+        })
+        withSpeakers = whisperClient.segmentBySpeakers(result)
+      }
 
       // Save transcription result
       const transcriptionPath = meetingDir

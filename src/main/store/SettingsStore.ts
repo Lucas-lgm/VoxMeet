@@ -13,6 +13,7 @@ interface AppSettings {
   ai?: AISettings
   whisperModelName?: string
   whisperLanguage?: string
+  transcriptionEngine?: 'whisper' | 'sensevoice'
   proxyUrl?: string
   locale?: string
   outputPath?: string
@@ -35,6 +36,35 @@ export function getWhisperModelsDir(): string {
 
 export function getWhisperModelPath(modelName: string): string {
   return path.join(MODELS_DIR, `ggml-${modelName}.bin`)
+}
+
+export function getSenseVoiceBinaryPath(): string {
+  const baseDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'sensevoice')
+    : path.join(process.cwd(), 'whisper', 'sensevoice')
+  return path.join(baseDir, 'bin', 'sherpa-onnx-offline')
+}
+
+export function getSenseVoiceLibDir(): string {
+  const baseDir = app.isPackaged
+    ? path.join(process.resourcesPath, 'sensevoice')
+    : path.join(process.cwd(), 'whisper', 'sensevoice')
+  return path.join(baseDir, 'lib')
+}
+
+export function getSenseVoiceModelPath(): string {
+  const userData = app.getPath('userData')
+  return path.join(userData, 'sensevoice-models', 'model.int8.onnx')
+}
+
+export function getSenseVoiceTokensPath(): string {
+  const userData = app.getPath('userData')
+  return path.join(userData, 'sensevoice-models', 'tokens.txt')
+}
+
+export function getSenseVoiceModelsDir(): string {
+  const userData = app.getPath('userData')
+  return path.join(userData, 'sensevoice-models')
 }
 
 export class SettingsStore {
@@ -141,6 +171,17 @@ export class SettingsStore {
   async saveAutoRecord(enabled: boolean): Promise<void> {
     await this.load()
     this.settings.autoRecord = enabled
+    await this.save()
+  }
+
+  async getTranscriptionEngine(): Promise<'whisper' | 'sensevoice'> {
+    await this.load()
+    return this.settings.transcriptionEngine || 'whisper'
+  }
+
+  async saveTranscriptionEngine(engine: 'whisper' | 'sensevoice'): Promise<void> {
+    await this.load()
+    this.settings.transcriptionEngine = engine
     await this.save()
   }
 }

@@ -408,25 +408,19 @@ bool AECRecorder::Impl::StartCapture() {
             return false;
         }
 
-        // 4. AEC pre-convergence: both callbacks fire (warmup_=true),
-        //    the AEC adapts its filter to the echo path, but all output is
-        //    discarded. During warmup the far-end reference gain is calibrated
-        //    and locked before capture begins.
-        far_energy_acc_ = 0.0;
-        mic_energy_acc_ = 0.0;
-        calib_samples_ = 0;
-        far_ref_gain_ = 1.0f;
+        // 4. Brief settling: let the audio callbacks fire briefly so that
+        //    ring buffers and Core Audio aggregate device stabilize.
+        //    WebRTC AEC3 converges rapidly on its own and does not need
+        //    a dedicated warmup phase — the echo suppressor handles initial
+        //    convergence within the first few frames.
         warmup_.store(true);
-        Logger::info("AECRecorder: starting AEC pre-convergence warmup (5s)");
-        [NSThread sleepForTimeInterval:5.0];
-        Logger::info("AECRecorder: warmup complete");
+        [NSThread sleepForTimeInterval:0.2];
+        warmup_.store(false);
+        Logger::info("AECRecorder: settling complete, capture starting");
 
-        // 5. Reset dynamic state post-warmup.
+        // 5. Reset dynamic state.
         ducker_.Reset();
         far_level_smooth_ = 0.0f;
-        Logger::info("AECRecorder: mic/far RMS ratio: %.3f (%lld samples, diagnostic only)",
-                     far_ref_gain_, calib_samples_);
-        warmup_.store(false);
         capturing_.store(true);
         Logger::info("AECRecorder: capture started (hasSystemAudio=%s)",
                      hasSystemAudio ? "yes" : "no");

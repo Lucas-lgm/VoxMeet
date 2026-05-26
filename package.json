@@ -1,12 +1,13 @@
 {
   "name": "voxmeet",
   "version": "1.0.0",
-  "description": "macOS meeting recorder with system audio capture, AEC, local Whisper transcription, and custom AI summaries",
+  "description": "macOS meeting recorder with system audio capture, AEC, local Whisper/SenseVoice transcription, and custom AI summaries",
   "main": "dist/main/index.js",
   "scripts": {
     "build": "npm run build:main && npm run build:renderer",
     "rebuild:native": "cd native/modules/recorder && node-gyp rebuild",
     "build:whisper": "bash scripts/setup-whisper.sh",
+    "setup:sensevoice": "bash scripts/setup-sensevoice.sh",
     "postinstall": "cd native/modules/recorder && npm install --production",
     "build:main": "tsc -p tsconfig.main.json && cp -r src/main/locales dist/main/locales",
     "build:renderer": "NODE_ENV=development webpack --config webpack.renderer.js",
@@ -123,6 +124,20 @@
       {
         "from": "whisper/whisper-cli",
         "to": "whisper/whisper-cli",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "whisper/sensevoice/bin/sherpa-onnx-offline",
+        "to": "sensevoice/bin/sherpa-onnx-offline",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "whisper/sensevoice/lib/libonnxruntime.1.24.4.dylib",
+        "to": "sensevoice/lib/libonnxruntime.1.24.4.dylib",
         "filter": [
           "**/*"
         ]

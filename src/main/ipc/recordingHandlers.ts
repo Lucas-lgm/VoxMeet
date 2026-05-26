@@ -3,12 +3,14 @@ import { RecorderController } from '../meeting/RecorderController'
 import { AudioFileManager } from '../meeting/AudioFileManager'
 import { MeetingSession } from '../meeting/MeetingSession'
 import { WhisperClient } from '../transcription/WhisperClient'
+import { SenseVoiceClient } from '../transcription/SenseVoiceClient'
 import { SettingsStore } from '../store/SettingsStore'
 import { createLogger } from '../utils/logger'
 import { writeFile } from 'fs/promises'
 
 const logger = createLogger('recordingIPC')
 const whisperClient = new WhisperClient()
+const senseVoiceClient = new SenseVoiceClient()
 const settingsStore = SettingsStore.getInstance()
 
 let session: MeetingSession | null = null
@@ -16,10 +18,20 @@ let controller: RecorderController | null = null
 
 async function runTranscription(meetingDir: string, whisperPath: string) {
   try {
+    const engine = await settingsStore.getTranscriptionEngine()
     const language = await settingsStore.getWhisperLanguage()
-    logger.info('Starting transcription', { whisperPath, language: language || 'auto' })
-    const result = await whisperClient.transcribe(whisperPath, language)
-    const withSpeakers = whisperClient.segmentBySpeakers(result)
+    logger.info('Starting transcription', { engine, whisperPath, language: language || 'auto' })
+
+    let result
+    if (engine === 'sensevoice') {
+      result = await senseVoiceClient.transcribe(whisperPath, language)
+    } else {
+      result = await whisperClient.transcribe(whisperPath, language)
+    }
+
+    const withSpeakers = engine === 'sensevoice'
+      ? senseVoiceClient.segmentBySpeakers(result)
+      : whisperClient.segmentBySpeakers(result)
 
     const outputPath = await settingsStore.getOutputPath()
     const fileManager = new AudioFileManager(outputPath || undefined)
