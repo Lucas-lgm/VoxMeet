@@ -14,9 +14,11 @@ const SEGMENT_RE = /^\s*(\d+\.\d+)s\s*-\s*(\d+\.\d+)s\s*-\s*"/ // matches " 1.23
 export class WhisperClient {
   private whisperPath: string = ''
   private modelPath: string = ''
+  private vadModelPath: string = ''
 
   async ensureConfigured(): Promise<void> {
     this.whisperPath = getWhisperBinaryPath()
+    this.vadModelPath = path.join(path.dirname(this.whisperPath), 'ggml-silero-v6.2.0.bin')
     const modelName = await settingsStore.getWhisperModelName()
     this.modelPath = getWhisperModelPath(modelName)
 
@@ -54,6 +56,7 @@ export class WhisperClient {
       '--beam-size', '5',
       '--no-speech-thold', '1.0',
       '--logprob-thold', '-2.0',
+      '--vad-model', this.vadModelPath,
       '--vad',
       '--vad-min-silence-duration-ms', '300',
     ]
