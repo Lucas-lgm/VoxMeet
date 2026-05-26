@@ -34,10 +34,7 @@ bool WebRTCAECWrapper::Initialize(int sampleRate, int channels) {
         config.gain_controller2.enabled = true;
         config.gain_controller2.adaptive_digital.enabled = true;
 
-        // Noise suppression: removes stationary background noise (fan, HVAC).
-        config.noise_suppression.enabled = true;
-        config.noise_suppression.level =
-            webrtc::AudioProcessing::Config::NoiseSuppression::kModerate;
+        // Noise suppression disabled — default, let AEC work alone first.
 
         // High-pass filter: removes DC offset and low-frequency rumble.
         config.high_pass_filter.enabled = true;
