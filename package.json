@@ -126,6 +126,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "whisper/ggml-silero-v6.2.0.bin",
+        "to": "whisper/ggml-silero-v6.2.0.bin",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
