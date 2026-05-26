@@ -104,6 +104,9 @@ private:
     float                        sys_gain_{1.0f};
     Ducker                       ducker_;
     float                        far_level_smooth_{0.0f};  // slow far-end peak for mix balance
+    float                        mic_rms_smooth_{0.0f};    // ~10s RMS for AEC ref normalization
+    float                        far_rms_smooth_{0.0f};    // ~10s RMS for AEC ref normalization
+    std::vector<float>           far_norm_buffer_;          // pre-alloc for normalized far-end
 };
 
 // ============================================================================
@@ -670,22 +673,58 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             std::fill(farChunk.begin(), farChunk.end(), 0.0f);
         }
 
-        // Track far-end peak (single pass: global max + per-chunk for AGC)
+        // Track far-end peak + RMS (single pass)
         float chunkFarPeak = 0.0f;
+        float farSumSq = 0.0f;
         for (int i = 0; i < chunkSize; ++i) {
             float af = std::fabs(farChunk[i]);
             chunkFarPeak = std::max(chunkFarPeak, af);
             peakFar = std::max(peakFar, af);
+            farSumSq += farChunk[i] * farChunk[i];
+        }
+        float farRms = std::sqrt(farSumSq / static_cast<float>(chunkSize));
+
+        // Track mic RMS for reference level normalization
+        float micSumSq = 0.0f;
+        for (int i = 0; i < chunkSize; ++i) {
+            micSumSq += micChunk[i] * micChunk[i];
+        }
+        float micRms = std::sqrt(micSumSq / static_cast<float>(chunkSize));
+
+        // Slow RMS smoothing (~10s at 100Hz) for AEC reference normalization.
+        // When mic >> far (high mic gain + quiet system tap), AEC3's filter
+        // must estimate echo path gains >> 1, causing numerical instability.
+        // We normalize the far-end reference to match mic level so the filter
+        // operates near unity gain. The gain changes very slowly so the
+        // adaptive filter tracks it without artefacts.
+        constexpr float kRmsSmoothCoef = 0.001f;
+        if (farRms > 1e-8f)  far_rms_smooth_  += kRmsSmoothCoef * (farRms - far_rms_smooth_);
+        if (micRms > 1e-8f)  mic_rms_smooth_  += kRmsSmoothCoef * (micRms - mic_rms_smooth_);
+
+        const float* aecFarRef = farChunk.data();
+        float farNormGain = 1.0f;
+        if (far_rms_smooth_ > 0.0001f && mic_rms_smooth_ > 0.0001f) {
+            farNormGain = mic_rms_smooth_ / far_rms_smooth_;
+            if (farNormGain > 10.0f) farNormGain = 10.0f;
+            if (farNormGain < 0.1f) farNormGain = 0.1f;
         }
 
-        // Process through 3A pipeline (AEC → AGC → ANS).
-        // Feed the AEC with the raw far-end reference (original tap),
-        // without any level normalization — the AEC's adaptive filter
-        // handles level differences naturally. Normalizing the reference
-        // would misalign it from the actual echo path (speaker→air→mic),
-        // preventing convergence and causing metallic artifacts ("电音").
+        // Apply normalization to a COPY — mix still uses original farChunk
+        if (std::fabs(farNormGain - 1.0f) > 0.01f) {
+            far_norm_buffer_.resize(static_cast<size_t>(chunkSize));
+            for (int i = 0; i < chunkSize; ++i) {
+                far_norm_buffer_[static_cast<size_t>(i)] = farChunk[i] * farNormGain;
+            }
+            aecFarRef = far_norm_buffer_.data();
+        }
+
+        // Process through 3A pipeline (AEC → ANS).
+        // AGC2 is disabled, so the pipeline now runs AEC + ANS only.
+        // Far-end reference is level-normalized so AEC3's adaptive filter
+        // coefficients stay near unity gain, avoiding numerical instability
+        // when the mic preamp gain is much higher than the system tap level.
         {
-            aec_.Process(micChunk, farChunk.data(), aecOut.data(), chunkSize);
+            aec_.Process(micChunk, aecFarRef, aecOut.data(), chunkSize);
         }
 
         // Track peaks after 3A processing
