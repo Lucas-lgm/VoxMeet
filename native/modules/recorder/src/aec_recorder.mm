@@ -104,8 +104,11 @@ private:
     float                        sys_gain_{1.0f};
     Ducker                       ducker_;
     float                        far_level_smooth_{0.0f};  // slow far-end peak for mix balance
-    float                        mic_rms_smooth_{0.0f};    // ~10s RMS for AEC ref normalization
-    float                        far_rms_smooth_{0.0f};    // ~10s RMS for AEC ref normalization
+    // Far-end reference level calibration (locked after warmup)
+    double                       far_energy_acc_{0.0};     // sum of squares during warmup
+    double                       mic_energy_acc_{0.0};
+    int64_t                      calib_samples_{0};
+    float                        far_ref_gain_{1.0f};      // locked after warmup, clamped [0.1,10]
     std::vector<float>           far_norm_buffer_;          // pre-alloc for normalized far-end
 };
 
@@ -267,15 +270,17 @@ void AECRecorder::Impl::HandleConfigurationChange() {
             }
         }];
 
-        // 2. Reset the AEC and flush the ring buffer. The adaptive filter was
-        //    converged to the previous echo path (e.g. headphones ≈ no echo).
-        //    After a device switch (headphones ↔ speakers) the echo path changes
-        //    dramatically; the filter must re-converge. Resetting the APM clears
-        //    filter coefficients, delay estimator, AGC, and NS state so they
-        //    adapt to the new acoustic environment from scratch.
+        // 2. Reset the AEC, flush the ring buffer, and re-calibrate the
+        //    far-end reference gain. After a device switch the echo path and
+        //    level ratios change dramatically. Resetting everything forces
+        //    re-convergence from scratch.
         aec_.Reset();
         ducker_.Reset();
         far_ring_buffer_.clear();
+        far_energy_acc_ = 0.0;
+        mic_energy_acc_ = 0.0;
+        calib_samples_ = 0;
+        far_ref_gain_ = 1.0f;
 
         // 3. Restart the engine. AVAudioEngine auto-pauses on configuration changes
         //    (e.g. headset plug/unplug). Without this call the tap is installed but
@@ -406,17 +411,25 @@ bool AECRecorder::Impl::StartCapture() {
 
         // 4. AEC pre-convergence: both callbacks fire (warmup_=true),
         //    the AEC adapts its filter to the echo path, but all output is
-        //    discarded.  5 seconds gives the adaptive filter + delay estimator
-        //    + AGC2 + NS enough time to converge.
+        //    discarded. During warmup the far-end reference gain is calibrated
+        //    and locked before capture begins.
+        far_energy_acc_ = 0.0;
+        mic_energy_acc_ = 0.0;
+        calib_samples_ = 0;
+        far_ref_gain_ = 1.0f;
         warmup_.store(true);
         Logger::info("AECRecorder: starting AEC pre-convergence warmup (5s)");
         [NSThread sleepForTimeInterval:5.0];
         Logger::info("AECRecorder: warmup complete");
 
-        // 5. Flush stale ring buffer data, reset dynamic state, then begin.
+        // 5. Lock far-end reference gain and reset dynamic state.
+        //    Gain was calibrated during warmup; now locked so AEC filter
+        //    converges with zero time variation on the reference.
         far_ring_buffer_.clear();
         ducker_.Reset();
         far_level_smooth_ = 0.0f;
+        Logger::info("AECRecorder: far-end ref gain calibrated: %.3f (%lld samples)",
+                     far_ref_gain_, calib_samples_);
         warmup_.store(false);
         capturing_.store(true);
         Logger::info("AECRecorder: capture started (hasSystemAudio=%s)",
@@ -673,56 +686,55 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             std::fill(farChunk.begin(), farChunk.end(), 0.0f);
         }
 
-        // Track far-end peak + RMS (single pass)
+        // Track far-end peak (single pass)
         float chunkFarPeak = 0.0f;
-        float farSumSq = 0.0f;
         for (int i = 0; i < chunkSize; ++i) {
             float af = std::fabs(farChunk[i]);
             chunkFarPeak = std::max(chunkFarPeak, af);
             peakFar = std::max(peakFar, af);
-            farSumSq += farChunk[i] * farChunk[i];
         }
-        float farRms = std::sqrt(farSumSq / static_cast<float>(chunkSize));
 
-        // Track mic RMS for reference level normalization
-        float micSumSq = 0.0f;
-        for (int i = 0; i < chunkSize; ++i) {
-            micSumSq += micChunk[i] * micChunk[i];
+        // ---- Far-end reference level calibration ---------------------------
+        // Accumulate mic + far energy to calibrate the reference gain.
+        // Accumulates during warmup and for up to 5s after a device change.
+        // After accumulation the gain is LOCKED — zero time variation,
+        // so the AEC filter can converge perfectly.
+        // This is the same approach used by Krisp, NVIDIA Broadcast, etc.
+        constexpr int64_t kMaxCalibSamples = 48000 * 5; // 5s @ 48kHz
+        if (calib_samples_ < kMaxCalibSamples) {
+            for (int i = 0; i < chunkSize; ++i) {
+                double fs = static_cast<double>(farChunk[i]);
+                double ms = static_cast<double>(micChunk[i]);
+                far_energy_acc_ += fs * fs;
+                mic_energy_acc_ += ms * ms;
+            }
+            calib_samples_ += chunkSize;
+            // Update running gain after at least 100ms of data
+            if (calib_samples_ > 4800 && far_energy_acc_ > 1e-10) {
+                float gain = static_cast<float>(
+                    std::sqrt(mic_energy_acc_ / far_energy_acc_));
+                if (gain > 10.0f) gain = 10.0f;
+                if (gain < 0.1f) gain = 0.1f;
+                far_ref_gain_ = gain;
+            }
         }
-        float micRms = std::sqrt(micSumSq / static_cast<float>(chunkSize));
 
-        // Slow RMS smoothing (~10s at 100Hz) for AEC reference normalization.
-        // When mic >> far (high mic gain + quiet system tap), AEC3's filter
-        // must estimate echo path gains >> 1, causing numerical instability.
-        // We normalize the far-end reference to match mic level so the filter
-        // operates near unity gain. The gain changes very slowly so the
-        // adaptive filter tracks it without artefacts.
-        constexpr float kRmsSmoothCoef = 0.001f;
-        if (farRms > 1e-8f)  far_rms_smooth_  += kRmsSmoothCoef * (farRms - far_rms_smooth_);
-        if (micRms > 1e-8f)  mic_rms_smooth_  += kRmsSmoothCoef * (micRms - mic_rms_smooth_);
-
+        // Apply the calibrated (or calibrating) gain to far-end for AEC.
+        // Mix still uses the original farChunk data.
         const float* aecFarRef = farChunk.data();
-        float farNormGain = 1.0f;
-        if (far_rms_smooth_ > 0.0001f && mic_rms_smooth_ > 0.0001f) {
-            farNormGain = mic_rms_smooth_ / far_rms_smooth_;
-            if (farNormGain > 10.0f) farNormGain = 10.0f;
-            if (farNormGain < 0.1f) farNormGain = 0.1f;
-        }
-
-        // Apply normalization to a COPY — mix still uses original farChunk
-        if (std::fabs(farNormGain - 1.0f) > 0.01f) {
+        if (std::fabs(far_ref_gain_ - 1.0f) > 0.01f) {
             far_norm_buffer_.resize(static_cast<size_t>(chunkSize));
             for (int i = 0; i < chunkSize; ++i) {
-                far_norm_buffer_[static_cast<size_t>(i)] = farChunk[i] * farNormGain;
+                far_norm_buffer_[static_cast<size_t>(i)] =
+                    farChunk[i] * far_ref_gain_;
             }
             aecFarRef = far_norm_buffer_.data();
         }
 
-        // Process through 3A pipeline (AEC → ANS).
-        // AGC2 is disabled, so the pipeline now runs AEC + ANS only.
-        // Far-end reference is level-normalized so AEC3's adaptive filter
-        // coefficients stay near unity gain, avoiding numerical instability
-        // when the mic preamp gain is much higher than the system tap level.
+        // Process through 3A pipeline (AEC + ANS, AGC2 disabled).
+        // Far-end reference is level-calibrated so AEC3's adaptive filter
+        // operates near unity gain, avoiding numerical instability when
+        // mic preamp gain >> system tap level.
         {
             aec_.Process(micChunk, aecFarRef, aecOut.data(), chunkSize);
         }
