@@ -29,7 +29,8 @@
         "./src",
         "./src/nodejs",
         "third_party/webrtc-audio-processing/webrtc",
-        "third_party/webrtc-audio-processing/subprojects/abseil-cpp-20240722.0"
+        "third_party/webrtc-audio-processing/subprojects/abseil-cpp-20240722.0",
+        "third_party/libsamplerate"
       ],
       "defines": [
         "NAPI_DISABLE_CPP_EXCEPTIONS",
@@ -54,7 +55,8 @@
               "-framework CoreFoundation",
               "-framework AVFoundation",
               "-framework Foundation",
-              "-lwebrtc-audio-processing-2"
+              "-lwebrtc-audio-processing-2",
+              "<(module_root_dir)/third_party/libsamplerate/lib/libsamplerate.a"
             ]
           }
         }]

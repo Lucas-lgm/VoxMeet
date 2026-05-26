@@ -3,6 +3,8 @@
 #include <AudioToolbox/AudioToolbox.h>
 #include <CoreAudio/CoreAudio.h>
 #include "logger.h"
+#include "audio_device_manager.h"
+#include <atomic>
 #include <vector>
 #include <memory>
 #include <functional>
@@ -31,13 +33,9 @@ public:
     void SetAudioDataCallback(std::function<void(const AudioBufferList*, UInt32, UInt32, const AudioTimeStamp*, Float64)> callback);
     
     bool CreateTapDevice();
-    bool ReadAudioData(float* buffer, size_t count);
-    
+
     // Get device ID
     AudioObjectID GetDeviceID() const { return deviceID_; }
-    
-    // Clean up ring buffer
-    void ClearRingBuffer();
     
     // Get audio format
     bool GetAudioFormat(AudioStreamBasicDescription& format) {
@@ -55,9 +53,6 @@ public:
     }
     
 private:
-    class Impl;
-    std::unique_ptr<Impl> impl_;
-    
     // Device property listener callback
     static OSStatus DeviceChangedListener(
         AudioObjectID inObjectID,
@@ -101,4 +96,6 @@ private:
     bool loopbackEnabled_;
     AudioDeviceIOProcID ioProcID_;
     std::function<void(const AudioBufferList*, UInt32, UInt32, const AudioTimeStamp*, Float64)> audioDataCallback_;
+    AudioDeviceManager device_manager_;
+    std::atomic<bool> stop_guard_{false};
 }; 

@@ -83,6 +83,16 @@ void WebRTCAECWrapper::Destroy() {
     }
 }
 
+void WebRTCAECWrapper::Reset() {
+    if (!apm_) return;
+    Logger::info("WebRTCAECWrapper: resetting APM state (filter, delay estimator, AGC, NS)");
+    Destroy();
+    // Re-initialize with the same sample rate and channel count.
+    // Initialize() skips if apm_ is already set; since we just destroyed it,
+    // it will recreate the APM with a fresh internal state.
+    Initialize(sample_rate_, channels_);
+}
+
 void WebRTCAECWrapper::Process(const float* near_data,
                                 const float* far_data,
                                 float* output,

@@ -7,7 +7,7 @@ import * as path from 'path'
 
 const logger = createLogger('transcriptionIPC')
 const whisperClient = new WhisperClient()
-const settingsStore = new SettingsStore()
+const settingsStore = SettingsStore.getInstance()
 
 export function setupTranscriptionIPC() {
   ipcMain.handle('transcription:start', async (event, audioPath: string, meetingDir?: string) => {

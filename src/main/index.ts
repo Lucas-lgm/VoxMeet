@@ -132,7 +132,7 @@ app.whenReady().then(async () => {
   }
 
   // Read persisted locale for tray menu
-  const settingsStore = new SettingsStore()
+  const settingsStore = SettingsStore.getInstance()
   const savedLocale = await settingsStore.getLocale()
   trayManager.initialize(savedLocale || undefined)
   shortcutManager.register()

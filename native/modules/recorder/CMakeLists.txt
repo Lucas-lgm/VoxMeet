@@ -55,18 +55,11 @@ target_include_directories(webrtc_audio_processing INTERFACE
     ${webrtc_audio_processing_BINARY_DIR}/webrtc
 )
 
-# Add source files
-add_executable(recorder
-    # src/test_microphone.cpp
-    src/main.cpp
-    src/recorder.cpp
-    src/mac_recorder.cpp
-    src/microphone_capture.cpp
+# Build all module sources as a static library (compilation check + header verification).
+add_library(recorder STATIC
     src/ring_buffer.cpp
+    src/resampler.cpp
     src/logger.cpp
-    src/mic_recorder.mm
-    src/mic_recorder_main.mm
-    src/system_capture_recorder_main.mm
     src/audio_device_manager.mm
     src/audio_system_capture.mm
     src/webrtc_aec_wrapper.cpp
@@ -78,7 +71,6 @@ add_executable(recorder
 # Set Objective-C++ compile options
 set_target_properties(recorder PROPERTIES
     COMPILE_FLAGS "-x objective-c++ -fobjc-arc -fmodules -DABSL_NULLABILITY_COMPATIBLE="
-    OUTPUT_NAME "recorder"
 )
 
 # Get abseil include directory
@@ -92,6 +84,7 @@ endif()
 # Add include directories
 target_include_directories(recorder PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsamplerate
     ${webrtc_audio_processing_SOURCE_DIR}/webrtc
     ${webrtc_audio_processing_BINARY_DIR}/webrtc
     ${ABSEIL_INCLUDE_DIR}
@@ -99,6 +92,7 @@ target_include_directories(recorder PRIVATE
 
 # Link libraries
 target_link_libraries(recorder PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/libsamplerate/lib/libsamplerate.a
     webrtc_audio_processing
     ${AVFoundation}
     ${Foundation}

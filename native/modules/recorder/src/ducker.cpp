@@ -1,42 +1,65 @@
 #include "ducker.h"
+#include <algorithm>
 #include <cmath>
 
 // ---------------------------------------------------------------------------
-// Ducking parameters
+// dB-domain sidechain ducker — broadcast-compressor model
 // ---------------------------------------------------------------------------
-static constexpr float kThreshold   = 0.05f;   // RMS threshold for near-end speech (~-26dBFS)
-static constexpr float kDepth       = 0.20f;   // gain when ducked (~14dB reduction)
-static constexpr float kAttackCoef  = 0.632f;  // 1 - exp(-0.01/0.01)
-static constexpr float kReleaseCoef = 0.020f;  // 1 - exp(-0.01/0.50)
-static constexpr int   kHoldFrames  = 3840;    // 80ms @ 48kHz (8 chunks × 480)
+// kThresholdDB = -18 dBFS  →  10^(-18/20) ≈ 0.126  linear RMS
+// kRangeDB     =  24 dB    →  max attenuation factor ≈ 0.063
+// kRatio       =   3:1     →  3 dB reduction per 1 dB overshoot
+// ---------------------------------------------------------------------------
+
+static constexpr float kThresholdLin = 0.126f;  // 10^(-18/20)
 
 Ducker::Ducker() = default;
 
 float Ducker::Process(const float* sidechain, int frames) {
-    // RMS of the sidechain (3A-processed near-end)
+    // ---- lazy-init smoothing coefficients once we know the frame rate ------
+    if (sample_rate_ == 0) {
+        sample_rate_ = frames * 100;           // 480 frames → 48 kHz
+        float chunkSec = static_cast<float>(frames) / static_cast<float>(sample_rate_);
+        attack_coef_  = 1.0f - std::exp(-chunkSec / (kAttackMs  / 1000.0f));
+        release_coef_ = 1.0f - std::exp(-chunkSec / (kReleaseMs / 1000.0f));
+    }
+
+    // ---- RMS envelope detection --------------------------------------------
     float sumSq = 0.0f;
     for (int i = 0; i < frames; ++i) {
-        sumSq += sidechain[i] * sidechain[i];
+        float s = sidechain[i];
+        sumSq += s * s;
     }
-    float rms = std::sqrt(sumSq / static_cast<float>(frames));
+    float rms    = std::sqrt(sumSq / static_cast<float>(frames));
+    float rms_db = 20.0f * std::log10(rms + 1e-10f);
 
-    // Hold timer: reset when active, count down when silent
-    if (rms > kThreshold) {
-        hold_ = kHoldFrames;
-    } else if (hold_ > 0) {
-        hold_ -= frames;
+    // ---- overshoot & hold --------------------------------------------------
+    float overshoot_db = 0.0f;
+    if (rms_db > kThresholdDB) {
+        overshoot_db       = rms_db - kThresholdDB;
+        hold_samples_      = static_cast<int>(kHoldMs * sample_rate_ / 1000.0f);
+        last_overshoot_db_ = overshoot_db;
+    } else if (hold_samples_ > 0) {
+        hold_samples_ -= frames;
+        overshoot_db   = last_overshoot_db_;   // sustain during hold
     }
-    bool shouldDuck = (hold_ > 0);
 
-    // Attack/release smoothing
-    float target = shouldDuck ? kDepth : 1.0f;
-    float coeff  = shouldDuck ? kAttackCoef : kReleaseCoef;
-    gain_ += coeff * (target - gain_);
+    // ---- target reduction (linear in dB) -----------------------------------
+    float target_db = 0.0f;
+    if (hold_samples_ > 0) {
+        target_db = overshoot_db * kRatio;
+        if (target_db > kRangeDB) target_db = kRangeDB;
+    }
 
-    return gain_;
+    // ---- attack / release smoothing ----------------------------------------
+    float coeff = (target_db > reduction_db_) ? attack_coef_ : release_coef_;
+    reduction_db_ += coeff * (target_db - reduction_db_);
+
+    // ---- return linear gain ------------------------------------------------
+    return std::pow(10.0f, -reduction_db_ / 20.0f);
 }
 
 void Ducker::Reset() {
-    gain_ = 1.0f;
-    hold_ = 0;
+    reduction_db_     = 0.0f;
+    hold_samples_     = 0;
+    last_overshoot_db_= 0.0f;
 }

@@ -4,9 +4,6 @@
 #import <CoreAudio/CATapDescription.h>
 #import <Foundation/Foundation.h>
 #include <vector>
-#include <mutex>
-#include <condition_variable>
-#include "audio_device_manager.h"
 #include "logger.h"
 
 constexpr AudioObjectPropertyAddress PropertyAddress(AudioObjectPropertySelector selector,
@@ -20,136 +17,13 @@ enum class StreamDirection : UInt32 {
     input
 };
 
-class RingBuffer {
-public:
-    RingBuffer(size_t size) 
-        : buffer_(size)
-        , read_pos_(0)
-        , write_pos_(0)
-        , size_(size)
-        , overflow_count_(0)
-        , underflow_count_(0)
-        , max_used_size_(0) {
-    }
-    
-    bool write(const float* data, size_t count) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        
-        // If buffer is full, return false
-        if (available_write() < count) {
-            overflow_count_++;
-            if (overflow_count_ % 100 == 0) {
-            }
-            return false;
-        }
-        
-        // Write data
-        for (size_t i = 0; i < count; ++i) {
-            buffer_[write_pos_] = data[i];
-            write_pos_ = (write_pos_ + 1) % size_;
-        }
-        
-        // Update max usage
-        size_t used_size = available_read();
-        if (used_size > max_used_size_) {
-            max_used_size_ = used_size;
-        }
-        
-        cv_.notify_one();
-        return true;
-    }
-    
-    bool read(float* data, size_t count) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        
-        // If insufficient data, wait a while
-        if (available_read() < count) {
-            if (cv_.wait_for(lock, std::chrono::milliseconds(10), 
-                           [this, count] { return available_read() >= count; })) {
-                // Still insufficient data after timeout, return false
-                underflow_count_++;
-                if (underflow_count_ % 100 == 0) {
-                }
-                return false;
-            }
-        }
-        
-        // Read data
-        for (size_t i = 0; i < count; ++i) {
-            data[i] = buffer_[read_pos_];
-            read_pos_ = (read_pos_ + 1) % size_;
-        }
-        return true;
-    }
-    
-    size_t available_read() const {
-        if (write_pos_ >= read_pos_) {
-            return write_pos_ - read_pos_;
-        }
-        return size_ - read_pos_ + write_pos_;
-    }
-    
-    size_t available_write() const {
-        return size_ - available_read() - 1;
-    }
-    
-    // Get statistics
-    struct Stats {
-        size_t overflow_count;
-        size_t underflow_count;
-        size_t max_used_size;
-        size_t current_size;
-    };
-    
-    Stats get_stats() const {
-        std::unique_lock<std::mutex> lock(mutex_);
-        return {
-            overflow_count_,
-            underflow_count_,
-            max_used_size_,
-            size_
-        };
-    }
-    
-    void clear() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        read_pos_ = 0;
-        write_pos_ = 0;
-        overflow_count_ = 0;
-        underflow_count_ = 0;
-        max_used_size_ = 0;
-    }
-    
-private:
-    std::vector<float> buffer_;
-    size_t read_pos_;
-    size_t write_pos_;
-    size_t size_;
-    mutable std::mutex mutex_;
-    std::condition_variable cv_;
-    
-    // Statistics
-    size_t overflow_count_;    // Overflow count
-    size_t underflow_count_;   // Underflow count
-    size_t max_used_size_;     // Max used size
-};
-
-class AudioSystemCapture::Impl {
-public:
-    Impl() : ring_buffer_(352800) {} // 8-second buffer
-    
-    RingBuffer ring_buffer_;
-    AudioDeviceManager device_manager_;
-};
-
-AudioSystemCapture::AudioSystemCapture() 
+AudioSystemCapture::AudioSystemCapture()
     : deviceID_(kAudioObjectUnknown)
     , inputStreamList_(std::make_shared<std::vector<AudioStreamBasicDescription>>())
     , outputStreamList_(std::make_shared<std::vector<AudioStreamBasicDescription>>())
     , recordingEnabled_(false)
     , loopbackEnabled_(false)
-    , ioProcID_(nullptr)
-    , impl_(std::make_unique<Impl>()) {
+    , ioProcID_(nullptr) {
 }
 
 AudioSystemCapture::~AudioSystemCapture() {
@@ -157,32 +31,23 @@ AudioSystemCapture::~AudioSystemCapture() {
     StopRecording();
     StopLoopback();
     StopIO();
-    
+
     // Unregister all listeners
     UnregisterListeners();
-    
+
     // Clean up device
     if (deviceID_ != kAudioObjectUnknown) {
-        // Get and clean up all taps
-        auto taps = impl_->device_manager_.GetDeviceTaps(deviceID_);
+        auto taps = device_manager_.GetDeviceTaps(deviceID_);
         for (const auto& tap : taps) {
-            impl_->device_manager_.RemoveTap(tap);
+            device_manager_.RemoveTap(tap);
         }
-        
-        // Remove aggregate device
-        impl_->device_manager_.RemoveAggregateDevice(deviceID_);
+        device_manager_.RemoveAggregateDevice(deviceID_);
         deviceID_ = kAudioObjectUnknown;
     }
-    
+
     // Clean up callback
     audioDataCallback_ = nullptr;
-    
-    // Clean up ring buffer
-    ClearRingBuffer();
-    
-    // Clean up impl object
-    impl_.reset();
-    
+
     Logger::info("AudioSystemCapture destroyed");
 }
 
@@ -344,19 +209,16 @@ bool AudioSystemCapture::StartIO() {
 }
 
 void AudioSystemCapture::StopIO() {
-    static bool isStopping = false;
-    if (isStopping) {
+    if (stop_guard_.exchange(true))
         return;
-    }
-    isStopping = true;
-    
+
     if (ioProcID_) {
         AudioDeviceStop(deviceID_, ioProcID_);
         AudioDeviceDestroyIOProcID(deviceID_, ioProcID_);
         ioProcID_ = nullptr;
     }
-    
-    isStopping = false;
+
+    stop_guard_.store(false);
 }
 
 void AudioSystemCapture::RegisterListeners() {
@@ -448,45 +310,36 @@ OSStatus AudioSystemCapture::IOProc(
     return kAudioHardwareNoError;
 }
 
-// Add new method to read data from ring buffer
-bool AudioSystemCapture::ReadAudioData(float* buffer, size_t count) {
-    return impl_->ring_buffer_.read(buffer, count);
-}
-
-void AudioSystemCapture::ClearRingBuffer() {
-    impl_->ring_buffer_.clear();
-}
-
 bool AudioSystemCapture::CreateTapDevice() {
     // Find and delete device by name
-    auto devicesToRemove = impl_->device_manager_.GetAggregateDevicesByName("plaud.ai Aggregate Audio Device");
+    auto devicesToRemove = device_manager_.GetAggregateDevicesByName("plaud.ai Aggregate Audio Device");
     for (const auto& deviceID : devicesToRemove) {
-        auto taps = impl_->device_manager_.GetDeviceTaps(deviceID);
+        auto taps = device_manager_.GetDeviceTaps(deviceID);
         for (const auto& tap : taps) {
-            impl_->device_manager_.RemoveTap(tap);
+            device_manager_.RemoveTap(tap);
         }
-        impl_->device_manager_.RemoveAggregateDevice(deviceID);
+        device_manager_.RemoveAggregateDevice(deviceID);
     }
-    
+
     // Verify device has been deleted
-    auto remainingDevices = impl_->device_manager_.GetAggregateDevicesByName("plaud.ai Aggregate Audio Device");
-    
+    auto remainingDevices = device_manager_.GetAggregateDevicesByName("plaud.ai Aggregate Audio Device");
+
     // Create new aggregate device
-    AudioObjectID newDeviceID = impl_->device_manager_.CreateAggregateDevice("plaud.ai Aggregate Audio Device");
+    AudioObjectID newDeviceID = device_manager_.CreateAggregateDevice("plaud.ai Aggregate Audio Device");
     if (newDeviceID == kAudioObjectUnknown) {
         Logger::error("Failed to create aggregate device");
         return false;
     }
     
     // Create tap
-    AudioObjectID tapID = impl_->device_manager_.CreateTap("plaud.ai tap");
+    AudioObjectID tapID = device_manager_.CreateTap("plaud.ai tap");
     if (tapID == kAudioObjectUnknown) {
         Logger::error("Failed to create tap");
         return false;
     }
     
     // Add tap to device
-    if (!impl_->device_manager_.AddTapToDevice(tapID, newDeviceID)) {
+    if (!device_manager_.AddTapToDevice(tapID, newDeviceID)) {
         Logger::error("Failed to add tap to device");
         return false;
     }

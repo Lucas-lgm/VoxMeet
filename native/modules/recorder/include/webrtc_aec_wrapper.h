@@ -18,6 +18,11 @@ public:
                  float* output,
                  int frames);
 
+    // Destroy and re-create the APM instance, resetting all internal state
+    // (adaptive filter coefficients, delay estimator, AGC, NS, HPF).
+    // Call this after a device change to force re-convergence.
+    void Reset();
+
     void SetEnabled(bool enabled);
     bool IsEnabled() const;
 

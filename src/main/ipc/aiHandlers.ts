@@ -9,7 +9,7 @@ import { createLogger } from '../utils/logger'
 
 const logger = createLogger('aiIPC')
 const aiClient = new AISummaryClient()
-const settingsStore = new SettingsStore()
+const settingsStore = SettingsStore.getInstance()
 
 export function setupAIHandlers() {
   ipcMain.handle('ai:summarize', async (_event, meetingDir: string, fullText: string, segments: any[]) => {

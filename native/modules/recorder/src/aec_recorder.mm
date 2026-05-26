@@ -13,7 +13,6 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include <mutex>
 #include <atomic>
 #include <cstring>
 #include <cstdio>
@@ -26,39 +25,9 @@ static const int kSampleRate       = 48000;
 static const int kChannels         = 1;   // mono
 static const int kFramesPerBuffer  = 480; // 10 ms @ 48 kHz
 
-// Ring buffer holds up to 10 seconds of mono float32 system audio.
-static const int kRingBufferSize   = kSampleRate * 10;
-
-// ---------------------------------------------------------------------------
-// Resampling helper (linear interpolation)
-// ---------------------------------------------------------------------------
-static std::vector<float> ResampleToRate(const float* input,
-                                          int inputFrames,
-                                          int inputRate,
-                                          int outputRate) {
-    if (inputRate == outputRate || inputFrames <= 0) {
-        return std::vector<float>(input, input + inputFrames);
-    }
-
-    double ratio = static_cast<double>(outputRate) / inputRate;
-    int outputFrames = static_cast<int>(std::ceil(inputFrames * ratio));
-    std::vector<float> result(static_cast<size_t>(outputFrames), 0.0f);
-
-    for (int i = 0; i < outputFrames; ++i) {
-        double srcPos = static_cast<double>(i) / ratio;
-        int srcIdx = static_cast<int>(srcPos);
-        double frac = srcPos - srcIdx;
-
-        if (srcIdx >= inputFrames - 1) {
-            result[static_cast<size_t>(i)] = input[inputFrames - 1];
-        } else {
-            result[static_cast<size_t>(i)] =
-                static_cast<float>(
-                    (1.0 - frac) * input[srcIdx] + frac * input[srcIdx + 1]);
-        }
-    }
-    return result;
-}
+// Ring buffer holds up to 4 seconds of mono float32 system audio.
+// Lock-free SPSC allows a smaller buffer vs the old mutex-based design.
+static const int kRingBufferSize   = kSampleRate * 4;
 
 // ---------------------------------------------------------------------------
 // AECRecorder::Impl  (defined entirely in .mm – can use ObjC ivars)
@@ -97,6 +66,9 @@ private:
                            UInt32 channels,
                            Float64 sampleRate);
 
+    // Called when audio hardware changes (e.g. headset plugged in).
+    void HandleConfigurationChange();
+
     // ---- Members -----------------------------------------------------------
     WebRTCAECWrapper             aec_;
     WAVFileWriter                wav_writer_;
@@ -109,11 +81,18 @@ private:
     FILE*                        debug_mixed_file_{nullptr};
 
     AVAudioEngine* __strong      audio_engine_;
+    id __strong                  config_change_obs_;    // AVAudioEngineConfigurationChange observer
     std::string                  output_file_path_;
     std::string                  whisper_output_path_;
 
     AECRecorder::MixedPCMCallback mixed_pcm_callback_;
-    std::unique_ptr<Resampler>   resampler_;
+    std::unique_ptr<Resampler>   resampler_;         // 48k → 16k for Whisper
+    std::unique_ptr<Resampler>   sys_resampler_;     // system rate → 48k for AEC
+    std::unique_ptr<Resampler>   mic_resampler_;     // mic rate → 48k (if needed)
+
+    // Pre-allocated buffers for real-time audio threads
+    std::vector<float>           mono_buffer_;
+    std::vector<float>           resample_buffer_;
 
     std::atomic<bool>            capturing_{false};
     std::atomic<bool>            disposing_{false};
@@ -162,7 +141,8 @@ bool AECRecorder::RequestSystemAudioPermission() { return ::RequestSystemAudioPe
 
 AECRecorder::Impl::Impl()
     : far_ring_buffer_(kRingBufferSize)
-    , audio_engine_(nil) {
+    , audio_engine_(nil)
+    , config_change_obs_(nil) {
 }
 
 AECRecorder::Impl::~Impl() {
@@ -229,9 +209,99 @@ bool AECRecorder::Impl::Prepare() {
                 }
             });
 
+        // 6. Listen for audio hardware changes (headset plug/unplug, etc.)
+        //    AVAudioEngine invalidates taps on config change; we must re-install.
+        //    Safe: observer is removed in Dispose() before audio_engine_ is released.
+        AECRecorder::Impl* implForObs = this;
+        config_change_obs_ = [[NSNotificationCenter defaultCenter]
+            addObserverForName:AVAudioEngineConfigurationChangeNotification
+                        object:audio_engine_
+                         queue:nil
+                    usingBlock:^(NSNotification* _Nonnull note) {
+            if (!implForObs->disposing_.load()) {
+                implForObs->HandleConfigurationChange();
+            }
+        }];
+
         Logger::info("AECRecorder: prepared (%d Hz, %d ch, %d frames/10ms)",
                       kSampleRate, kChannels, kFramesPerBuffer);
         return true;
+    }
+}
+
+// ============================================================================
+// HandleConfigurationChange – re-install mic tap after hardware change
+// ============================================================================
+
+void AECRecorder::Impl::HandleConfigurationChange() {
+    @autoreleasepool {
+        // Bail if Dispose() was called before this handler ran.
+        if (disposing_.load()) return;
+
+        Logger::info("AECRecorder: audio engine config changed, re-installing tap");
+
+        // 1. Re-install the mic tap. The existing tap was invalidated by the config
+        //    change; the input node may also have a new hardware format.
+        AVAudioInputNode* inputNode = audio_engine_.inputNode;
+        [inputNode removeTapOnBus:0];
+
+        AVAudioFormat* micFormat = [inputNode inputFormatForBus:0];
+        mic_sample_rate_ = static_cast<int>(micFormat.sampleRate);
+        mic_resampler_.reset();
+
+        AECRecorder::Impl* impl = this;
+        [inputNode installTapOnBus:0
+                        bufferSize:(AVAudioFrameCount)kFramesPerBuffer
+                            format:micFormat
+                             block:^(AVAudioPCMBuffer* _Nonnull buf,
+                                     AVAudioTime* _Nonnull when) {
+            if (!impl->disposing_.load()) {
+                impl->OnMicData(buf);
+            }
+        }];
+
+        // 2. Reset the AEC and flush the ring buffer. The adaptive filter was
+        //    converged to the previous echo path (e.g. headphones ≈ no echo).
+        //    After a device switch (headphones ↔ speakers) the echo path changes
+        //    dramatically; the filter must re-converge. Resetting the APM clears
+        //    filter coefficients, delay estimator, AGC, and NS state so they
+        //    adapt to the new acoustic environment from scratch.
+        aec_.Reset();
+        ducker_.Reset();
+        far_ring_buffer_.clear();
+
+        // 3. Restart the engine. AVAudioEngine auto-pauses on configuration changes
+        //    (e.g. headset plug/unplug). Without this call the tap is installed but
+        //    no callbacks fire — the recording silently produces zero data.
+        NSError* error = nil;
+        [audio_engine_ startAndReturnError:&error];
+        if (error) {
+            Logger::error("AECRecorder: failed to restart engine after config change: %s",
+                          [[error localizedDescription] UTF8String]);
+        }
+
+        // 4. Recreate the system audio capture tap device on the main thread.
+        //    The old aggregate device was tied to the previous output hardware;
+        //    after a device switch (headphones ↔ speakers) its sub-device list
+        //    is stale and the tap may not capture the current output correctly.
+        //    Deferring to the main thread avoids calling CoreAudio device-creation
+        //    APIs from the AVAudioEngine notification queue.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (!impl->disposing_.load()) {
+                Logger::info("AECRecorder: recreating system capture after config change");
+                system_capture_.StopRecording();
+                if (system_capture_.CreateTapDevice()) {
+                    [NSThread sleepForTimeInterval:0.1];
+                    system_capture_.StartRecording();
+                    Logger::info("AECRecorder: system capture recreated successfully");
+                } else {
+                    Logger::warn("AECRecorder: failed to recreate system capture after config change, continuing mic-only");
+                }
+            }
+        });
+
+        Logger::info("AECRecorder: tap re-installed and engine restarted, sampleRate=%d",
+                     mic_sample_rate_);
     }
 }
 
@@ -245,6 +315,10 @@ void AECRecorder::Impl::Dispose() {
     StopCapture();
 
     @autoreleasepool {
+        if (config_change_obs_) {
+            [[NSNotificationCenter defaultCenter] removeObserver:config_change_obs_];
+            config_change_obs_ = nil;
+        }
         if (audio_engine_) {
             // Remove the tap before releasing the engine
             AVAudioInputNode* inputNode = audio_engine_.inputNode;
@@ -305,7 +379,23 @@ bool AECRecorder::Impl::StartCapture() {
             resampler_ = std::make_unique<Resampler>(48000, 16000);
         }
 
-        // 3. Start the AVAudioEngine (mic tap begins delivering data).
+        // 3. Start the system audio capture FIRST and let it warm up.
+        //    CoreAudio's aggregate device and tap need time to synchronize
+        //    sub-device clocks; the first several seconds of tap data may
+        //    be corrupted during this sync period.
+        //    Starting the capture before the engine means the data is
+        //    discarded (capturing_ is still false → OnSystemAudioData
+        //    returns early), but the tap hardware has time to stabilize.
+        if (hasSystemAudio) {
+            if (!system_capture_.StartRecording()) {
+                Logger::warn("AECRecorder: system capture start failed, continuing mic-only");
+            }
+            [NSThread sleepForTimeInterval:2.0];
+            // Discard any stale data accumulated during tap warmup.
+            far_ring_buffer_.clear();
+        }
+
+        // 4. Start the AVAudioEngine (mic tap begins delivering data).
         NSError* error = nil;
         [audio_engine_ startAndReturnError:&error];
         if (error) {
@@ -315,13 +405,7 @@ bool AECRecorder::Impl::StartCapture() {
             return false;
         }
 
-        // 4. Start receiving system audio (if available).
-        if (hasSystemAudio) {
-            if (!system_capture_.StartRecording()) {
-                Logger::warn("AECRecorder: system capture start failed, continuing mic-only");
-            }
-        }
-
+        ducker_.Reset();
         capturing_.store(true);
         Logger::info("AECRecorder: capture started (hasSystemAudio=%s)",
                      hasSystemAudio ? "yes" : "no");
@@ -437,7 +521,7 @@ void AECRecorder::Impl::SetAECEnabled(bool en)  { aec_.SetEnabled(en); }
 bool AECRecorder::Impl::IsCapturing() const     { return capturing_.load(); }
 
 // ============================================================================
-// OnSystemAudioData – called from CoreAudio I/O thread
+// OnSystemAudioData – called from CoreAudio I/O thread (REAL-TIME SAFE)
 // ============================================================================
 
 void AECRecorder::Impl::OnSystemAudioData(const AudioBufferList* bufferList,
@@ -452,10 +536,12 @@ void AECRecorder::Impl::OnSystemAudioData(const AudioBufferList* bufferList,
     const float* src      = static_cast<const float*>(buf.mData);
     int          srcFrames = static_cast<int>(frames);
 
-    // Convert multi-channel interleaved to mono.
-    std::vector<float> mono(static_cast<size_t>(srcFrames), 0.0f);
+    // Pre-allocated downmix buffer (no heap alloc after initial resize).
+    mono_buffer_.resize(static_cast<size_t>(srcFrames));
+    float* mono = mono_buffer_.data();
+
     if (channels == 1) {
-        std::memcpy(mono.data(), src,
+        std::memcpy(mono, src,
                     static_cast<size_t>(srcFrames) * sizeof(float));
     } else {
         for (int i = 0; i < srcFrames; ++i) {
@@ -467,19 +553,23 @@ void AECRecorder::Impl::OnSystemAudioData(const AudioBufferList* bufferList,
         }
     }
 
-    // Resample to the target rate if necessary.
-    std::vector<float> out;
+    // Resample to AEC target rate using the quality SRC resampler.
     if (static_cast<int>(sampleRate) != kSampleRate) {
-        out = ResampleToRate(mono.data(), srcFrames,
-                             static_cast<int>(sampleRate), kSampleRate);
+        if (!sys_resampler_ ||
+            sys_resampler_->input_rate() != static_cast<int>(sampleRate)) {
+            sys_resampler_ = std::make_unique<Resampler>(
+                static_cast<int>(sampleRate), kSampleRate);
+        }
+        int outFrames = sys_resampler_->GetOutputFrameCount(srcFrames);
+        resample_buffer_.resize(static_cast<size_t>(outFrames));
+        int actual = sys_resampler_->ProcessToBuffer(
+            mono, srcFrames, resample_buffer_.data(), outFrames);
+        if (actual > 0) {
+            far_ring_buffer_.write(resample_buffer_.data(),
+                                    static_cast<size_t>(actual));
+        }
     } else {
-        out = std::move(mono);
-    }
-
-    // Push into the ring buffer.  If the buffer is full we simply drop the
-    // data – the AEC will use zeros for those frames.
-    if (!out.empty()) {
-        far_ring_buffer_.write(out.data(), out.size());
+        far_ring_buffer_.write(mono, static_cast<size_t>(srcFrames));
     }
 }
 
@@ -495,12 +585,24 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
     int           micFrames = static_cast<int>(frameCount);
     if (micFrames <= 0) return;
 
+    // Detect mic sample rate changes (device plug/unplug during recording).
+    int bufferSampleRate = static_cast<int>(buffer.format.sampleRate);
+    if (bufferSampleRate > 0 && bufferSampleRate != mic_sample_rate_) {
+        Logger::info("AECRecorder: mic sample rate changed: %d → %d",
+                     mic_sample_rate_, bufferSampleRate);
+        mic_sample_rate_ = bufferSampleRate;
+        mic_resampler_.reset();
+    }
+
     // Resample mic to the AEC target rate if necessary.
     int aecFrames = micFrames;
     std::vector<float> micAtTargetRate;
     if (mic_sample_rate_ != 0 && mic_sample_rate_ != kSampleRate) {
-        micAtTargetRate = ResampleToRate(micRaw, micFrames,
-                                         mic_sample_rate_, kSampleRate);
+        if (!mic_resampler_) {
+            mic_resampler_ = std::make_unique<Resampler>(mic_sample_rate_,
+                                                          kSampleRate);
+        }
+        micAtTargetRate = mic_resampler_->Process(micRaw, micFrames);
         aecFrames = static_cast<int>(micAtTargetRate.size());
         micRaw = micAtTargetRate.data();
     }
@@ -515,10 +617,22 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
     // ---------- Chunked processing -----------------------------------------
     // 3A pipeline operates on 10ms blocks (kFramesPerBuffer = 480 @ 48kHz).
     // The mic tap may deliver larger blocks, so we process in chunks.
+    // Ceiling-divide so we never drop remainder frames.
     const int chunkSize = kFramesPerBuffer;  // 480 frames = 10ms
-    int numChunks = aecFrames / chunkSize;
+    int numChunks = (aecFrames + chunkSize - 1) / chunkSize;
+    int paddedFrames = numChunks * chunkSize;
 
-    std::vector<float> mixed(static_cast<size_t>(aecFrames), 0.0f);
+    // Zero-pad the mic input so the last chunk always has full 480 frames.
+    // The AEC requires fixed-size frames; padded silence at the tail is harmless.
+    std::vector<float> micPadded;
+    if (paddedFrames > aecFrames) {
+        micPadded.resize(static_cast<size_t>(paddedFrames), 0.0f);
+        std::memcpy(micPadded.data(), micRaw,
+                    static_cast<size_t>(aecFrames) * sizeof(float));
+        micRaw = micPadded.data();
+    }
+
+    std::vector<float> mixed(static_cast<size_t>(paddedFrames), 0.0f);
     std::vector<float> aecOut(static_cast<size_t>(chunkSize), 0.0f);
     std::vector<float> farChunk(static_cast<size_t>(chunkSize), 0.0f);
 
@@ -541,19 +655,30 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             peakFar = std::max(peakFar, std::fabs(farChunk[i]));
         }
 
-        // Process through 3A pipeline (AEC → AGC → ANS)
-        std::fill(aecOut.begin(), aecOut.end(), 0.0f);
-        aec_.Process(micChunk, farChunk.data(), aecOut.data(), chunkSize);
+        // Process through 3A pipeline (AEC → AGC → ANS).
+        // Feed the AEC with the raw far-end reference (original tap),
+        // without any level normalization — the AEC's adaptive filter
+        // handles level differences naturally. Normalizing the reference
+        // would misalign it from the actual echo path (speaker→air→mic),
+        // preventing convergence and causing metallic artifacts ("电音").
+        {
+            aec_.Process(micChunk, farChunk.data(), aecOut.data(), chunkSize);
+        }
 
         // Track peaks after 3A processing
         for (int i = 0; i < chunkSize; ++i) {
             peakAec = std::max(peakAec, std::fabs(aecOut[i]));
         }
 
-        // Ducking: sidechain aecOut → attenuate far-end
+        // Ducking: dB-domain compressor on aecOut sidechain.
+        // Returns linear gain duckGain ∈ [10^(-range/20), 1.0].
+        // Reduction is proportional to how far aecOut exceeds the
+        // threshold — soft speech barely ducks, loud speech ducks deep.
         float duckGain = ducker_.Process(aecOut.data(), chunkSize);
 
-        // Mix: 3A-processed near-end + ducked far-end
+        // Mix: AEC-processed voice + raw system audio (clean tap).
+        // The ducker handles level balance automatically via ratio-based
+        // gain reduction — no manual peak clamping needed.
         {
             float effSysGain = sys_gain_ * duckGain;
             for (int i = 0; i < chunkSize; ++i) {
@@ -582,7 +707,20 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
                      peakMic, peakFar, peakAec, peakMix, numChunks, far_ring_buffer_.available_read());
     }
 
-    // ---------- 4. Convert to int16 and write WAV -------------------------
+    // ---------- 4. Apply limiter to prevent clipping ----------------------
+    // When system audio is loud, the mix of aecOut + ducked farChunk can
+    // exceed 1.0, causing hard-clipping distortion in the int16 conversion
+    // (the old clamp at [-1,1] is a hard clipper).  A soft limiter scales
+    // the entire buffer by 1/peak, preserving waveform shape without audible
+    // distortion.
+    if (peakMix > 1.0f) {
+        float scale = 1.0f / peakMix;
+        for (int i = 0; i < aecFrames; ++i) {
+            mixed[static_cast<size_t>(i)] *= scale;
+        }
+    }
+
+    // ---------- 5. Convert to int16 and write WAV -------------------------
     std::vector<int16_t> wavSamples(static_cast<size_t>(aecFrames));
     for (int i = 0; i < aecFrames; ++i) {
         float s = mixed[static_cast<size_t>(i)];

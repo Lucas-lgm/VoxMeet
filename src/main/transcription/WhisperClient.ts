@@ -7,7 +7,7 @@ import { getWhisperBinaryPath, getWhisperModelPath } from '../store/SettingsStor
 import { SettingsStore } from '../store/SettingsStore'
 
 const logger = createLogger('WhisperClient')
-const settingsStore = new SettingsStore()
+const settingsStore = SettingsStore.getInstance()
 
 const SEGMENT_RE = /^\s*(\d+\.\d+)s\s*-\s*(\d+\.\d+)s\s*-\s*"/ // matches " 1.23s -  4.56s - \"text\""
 

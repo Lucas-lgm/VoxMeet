@@ -38,8 +38,19 @@ export function getWhisperModelPath(modelName: string): string {
 }
 
 export class SettingsStore {
+  private static instance: SettingsStore
+
+  static getInstance(): SettingsStore {
+    if (!SettingsStore.instance) {
+      SettingsStore.instance = new SettingsStore()
+    }
+    return SettingsStore.instance
+  }
+
   private settings: AppSettings = {}
   private loaded = false
+
+  private constructor() {}
 
   async load(): Promise<void> {
     if (this.loaded) return

@@ -1,70 +1,61 @@
 #include "ring_buffer.h"
-#include "logger.h"
+#include <algorithm>
 
-RingBuffer::RingBuffer(size_t size) 
-    : buffer_(size)
-    , read_pos_(0)
-    , write_pos_(0)
-    , size_(size)
-    , overflow_count_(0)
-    , underflow_count_(0)
-    , max_used_size_(0) {
+static size_t RoundUpPower2(size_t n) {
+    if (n == 0) return 1024;
+    size_t p = 1;
+    while (p < n) p <<= 1;
+    return p;
 }
+
+RingBuffer::RingBuffer(size_t size)
+    : capacity_(RoundUpPower2(size))
+    , mask_(capacity_ - 1)
+    , buffer_(capacity_, 0.0f) {}
 
 bool RingBuffer::write(const float* data, size_t count) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    
-    if (available_write() < count) {
-        overflow_count_++;
-        if (overflow_count_ % 100 == 0) {
-            Logger::warn("Ring buffer overflows: %zu", overflow_count_);
-        }
+    const auto w = write_pos_.load(std::memory_order_relaxed);
+    const auto r = read_pos_.load(std::memory_order_acquire);
+
+    if (w - r + count > capacity_)
         return false;
-    }
-    
-    for (size_t i = 0; i < count; ++i) {
-        buffer_[write_pos_] = data[i];
-        write_pos_ = (write_pos_ + 1) % size_;
-    }
-    
-    size_t used_size = available_read();
-    if (used_size > max_used_size_) {
-        max_used_size_ = used_size;
-    }
-    
-    cv_.notify_one();
+
+    for (size_t i = 0; i < count; ++i)
+        buffer_[(w + i) & mask_] = data[i];
+
+    write_pos_.store(w + count, std::memory_order_release);
     return true;
 }
 
-bool RingBuffer::read(float* data, size_t count) {
-    std::unique_lock<std::mutex> lock(mutex_);
-    
-    if (available_read() < count) {
-        bool gotData = cv_.wait_for(lock, std::chrono::milliseconds(10),
-                       [this, count] { return available_read() >= count; });
-        if (!gotData) {
-            underflow_count_++;
-            if (underflow_count_ % 100 == 0) {
-                Logger::warn("Ring buffer underflows: %zu", underflow_count_);
-            }
-            return false;
-        }
-    }
-    
-    for (size_t i = 0; i < count; ++i) {
-        data[i] = buffer_[read_pos_];
-        read_pos_ = (read_pos_ + 1) % size_;
-    }
-    return true;
+size_t RingBuffer::read(float* data, size_t count) {
+    const auto r = read_pos_.load(std::memory_order_relaxed);
+    const auto w = write_pos_.load(std::memory_order_acquire);
+
+    const size_t avail = w - r;
+    const size_t toRead = std::min(count, avail);
+
+    for (size_t i = 0; i < toRead; ++i)
+        data[i] = buffer_[(r + i) & mask_];
+
+    if (toRead > 0)
+        read_pos_.store(r + toRead, std::memory_order_release);
+
+    return toRead;
 }
 
 size_t RingBuffer::available_read() const {
-    if (write_pos_ >= read_pos_) {
-        return write_pos_ - read_pos_;
-    }
-    return size_ - read_pos_ + write_pos_;
+    const auto w = write_pos_.load(std::memory_order_acquire);
+    const auto r = read_pos_.load(std::memory_order_relaxed);
+    return w - r;
 }
 
 size_t RingBuffer::available_write() const {
-    return size_ - available_read() - 1;
-} 
+    const auto w = write_pos_.load(std::memory_order_relaxed);
+    const auto r = read_pos_.load(std::memory_order_acquire);
+    return capacity_ - (w - r) - 1;
+}
+
+void RingBuffer::clear() {
+    write_pos_.store(0, std::memory_order_relaxed);
+    read_pos_.store(0, std::memory_order_relaxed);
+}

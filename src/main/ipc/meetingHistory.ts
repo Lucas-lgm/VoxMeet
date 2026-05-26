@@ -4,7 +4,7 @@ import * as fs from 'fs/promises'
 import { SettingsStore } from '../store/SettingsStore'
 
 async function getMeetingsDir(): Promise<string> {
-  const store = new SettingsStore()
+  const store = SettingsStore.getInstance()
   const customPath = await store.getOutputPath()
   return customPath || path.join(require('os').homedir(), 'Documents', 'MeetingNotes')
 }

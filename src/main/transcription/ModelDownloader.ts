@@ -7,7 +7,7 @@ import { getWhisperModelsDir, getWhisperModelPath, SettingsStore } from '../stor
 import { createLogger } from '../utils/logger'
 
 const logger = createLogger('ModelDownloader')
-const settingsStore = new SettingsStore()
+const settingsStore = SettingsStore.getInstance()
 
 async function getProxyAgent(url: string): Promise<https.Agent | http.Agent | undefined> {
   // Check settings store first (UI configured), then env vars

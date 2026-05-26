@@ -9,7 +9,7 @@ import { writeFile } from 'fs/promises'
 
 const logger = createLogger('recordingIPC')
 const whisperClient = new WhisperClient()
-const settingsStore = new SettingsStore()
+const settingsStore = SettingsStore.getInstance()
 
 let session: MeetingSession | null = null
 let controller: RecorderController | null = null
