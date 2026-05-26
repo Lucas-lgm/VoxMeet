@@ -100,6 +100,7 @@ private:
     float                        mic_gain_{1.0f};
     float                        sys_gain_{1.0f};
     Ducker                       ducker_;
+    float                        far_level_smooth_{0.0f};  // slow far-end peak for mix balance
 };
 
 // ============================================================================
@@ -406,6 +407,7 @@ bool AECRecorder::Impl::StartCapture() {
         }
 
         ducker_.Reset();
+        far_level_smooth_ = 0.0f;
         capturing_.store(true);
         Logger::info("AECRecorder: capture started (hasSystemAudio=%s)",
                      hasSystemAudio ? "yes" : "no");
@@ -650,9 +652,12 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             std::fill(farChunk.begin(), farChunk.end(), 0.0f);
         }
 
-        // Track far-end peak
+        // Track far-end peak (single pass: global max + per-chunk for AGC)
+        float chunkFarPeak = 0.0f;
         for (int i = 0; i < chunkSize; ++i) {
-            peakFar = std::max(peakFar, std::fabs(farChunk[i]));
+            float af = std::fabs(farChunk[i]);
+            chunkFarPeak = std::max(chunkFarPeak, af);
+            peakFar = std::max(peakFar, af);
         }
 
         // Process through 3A pipeline (AEC → AGC → ANS).
@@ -671,16 +676,24 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
         }
 
         // Ducking: dB-domain compressor on aecOut sidechain.
-        // Returns linear gain duckGain ∈ [10^(-range/20), 1.0].
-        // Reduction is proportional to how far aecOut exceeds the
-        // threshold — soft speech barely ducks, loud speech ducks deep.
         float duckGain = ducker_.Process(aecOut.data(), chunkSize);
 
-        // Mix: AEC-processed voice + raw system audio (clean tap).
-        // The ducker handles level balance automatically via ratio-based
-        // gain reduction — no manual peak clamping needed.
+        // Slow far-end level normalization for transcription quality.
+        // Smoothed peak of system audio with ~5s time constant.
+        // Attenuates loud system audio to ~-12dBFS, matching AGC2 voice level.
+        // Quiet system audio is left unchanged (gain ≤ 1.0, no boost).
+        far_level_smooth_ += 0.002f * (chunkFarPeak - far_level_smooth_);
+        constexpr float kFarMixTarget = 0.25f;  // -12dBFS
+        float farMixNorm = 1.0f;
+        if (far_level_smooth_ > 0.001f) {
+            farMixNorm = std::min(kFarMixTarget / far_level_smooth_, 1.0f);
+        }
+
+        // Mix: AEC-processed voice + level-balanced system audio.
+        // effSysGain = sys_gain × duckGain × normalization — the ducker
+        // provides per-chunk attenuation on top of the slow level balance.
         {
-            float effSysGain = sys_gain_ * duckGain;
+            float effSysGain = sys_gain_ * duckGain * farMixNorm;
             for (int i = 0; i < chunkSize; ++i) {
                 float v = aecOut[i] * mic_gain_ + farChunk[i] * effSysGain;
                 mixed[static_cast<size_t>(offset + i)] = v;
