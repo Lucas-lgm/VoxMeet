@@ -52,7 +52,7 @@ export class WhisperClient {
       '--output-json',
       '--output-file', outputPrefix,
       '--beam-size', '5',
-      '--no-speech-thold', '0.6',
+      '--no-speech-thold', '1.0',
     ]
     if (language) {
       args.push('-l', language)
