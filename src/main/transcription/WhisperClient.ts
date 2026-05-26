@@ -51,6 +51,8 @@ export class WhisperClient {
       '-m', this.modelPath,
       '--output-json',
       '--output-file', outputPrefix,
+      '--beam-size', '5',
+      '--no-speech-thold', '0.6',
     ]
     if (language) {
       args.push('-l', language)
