@@ -73,6 +73,7 @@ private:
     WebRTCAECWrapper             aec_;
     WAVFileWriter                wav_writer_;
     WAVFileWriter                whisper_wav_writer_;
+    WAVFileWriter                debug_aec_writer_;    // AEC output only (no mix, no far-end)
     AudioSystemCapture           system_capture_;
     RingBuffer                   far_ring_buffer_;   // system audio samples
     int                          mic_sample_rate_{0};
@@ -96,6 +97,7 @@ private:
 
     std::atomic<bool>            capturing_{false};
     std::atomic<bool>            disposing_{false};
+    std::atomic<bool>            warmup_{false};       // AEC pre-convergence, output discarded
 
     float                        mic_gain_{1.0f};
     float                        sys_gain_{1.0f};
@@ -205,7 +207,7 @@ bool AECRecorder::Impl::Prepare() {
                    UInt32 ch,
                    const AudioTimeStamp* ts,
                    Float64 sampleRate) {
-                if (!disposing_.load() && capturing_.load()) {
+                if (!disposing_.load() && (capturing_.load() || warmup_.load())) {
                     this->OnSystemAudioData(abl, frames, ch, sampleRate);
                 }
             });
@@ -366,7 +368,6 @@ bool AECRecorder::Impl::StartCapture() {
             if (!wav_writer_.Open(output_file_path_, kSampleRate, kChannels, 16)) {
                 Logger::error("AECRecorder: failed to open WAV: %s",
                               output_file_path_.c_str());
-                // Non-fatal – capture can proceed without file output.
             }
         }
 
@@ -380,41 +381,52 @@ bool AECRecorder::Impl::StartCapture() {
             resampler_ = std::make_unique<Resampler>(48000, 16000);
         }
 
-        // 3. Start the system audio capture FIRST and let it warm up.
-        //    CoreAudio's aggregate device and tap need time to synchronize
-        //    sub-device clocks; the first several seconds of tap data may
-        //    be corrupted during this sync period.
-        //    Starting the capture before the engine means the data is
-        //    discarded (capturing_ is still false → OnSystemAudioData
-        //    returns early), but the tap hardware has time to stabilize.
+        // 3. Start system capture + mic ENGINE FIRST, then let AEC
+        //    pre-converge before we begin writing any output.
         if (hasSystemAudio) {
             if (!system_capture_.StartRecording()) {
                 Logger::warn("AECRecorder: system capture start failed, continuing mic-only");
             }
-            [NSThread sleepForTimeInterval:2.0];
-            // Discard any stale data accumulated during tap warmup.
-            far_ring_buffer_.clear();
+            [NSThread sleepForTimeInterval:0.5];
         }
 
-        // 4. Start the AVAudioEngine (mic tap begins delivering data).
         NSError* error = nil;
         [audio_engine_ startAndReturnError:&error];
         if (error) {
             Logger::error("AECRecorder: AVAudioEngine start error: %s",
                           [[error localizedDescription] UTF8String]);
             if (wav_writer_.IsOpen()) wav_writer_.Close();
+            if (hasSystemAudio) system_capture_.StopRecording();
             return false;
         }
 
+        // 4. AEC pre-convergence: both callbacks fire (warmup_=true),
+        //    the AEC adapts its filter to the echo path, but all output is
+        //    discarded.  5 seconds gives the adaptive filter + delay estimator
+        //    + AGC2 + NS enough time to converge.
+        warmup_.store(true);
+        Logger::info("AECRecorder: starting AEC pre-convergence warmup (5s)");
+        [NSThread sleepForTimeInterval:5.0];
+        Logger::info("AECRecorder: warmup complete");
+
+        // 5. Flush stale ring buffer data, reset dynamic state, then begin.
+        far_ring_buffer_.clear();
         ducker_.Reset();
         far_level_smooth_ = 0.0f;
+        warmup_.store(false);
         capturing_.store(true);
         Logger::info("AECRecorder: capture started (hasSystemAudio=%s)",
                      hasSystemAudio ? "yes" : "no");
 
-        // Open debug files (disabled by default — uncomment for AEC debugging)
-        // debug_mic_file_ = fopen("/tmp/aec_debug_mic.f32", "wb");
-        // debug_mixed_file_ = fopen("/tmp/aec_debug_mixed.f32", "wb");
+        // Debug: AEC analysis WAVs — set DEBUG_AEC=1 to enable.
+        // Writes to /tmp/debug_{mic,aec,mixed}.wav (48kHz mono float).
+        // Open in Audacity to compare timing alignment and AEC convergence.
+        if (const char* e = getenv("DEBUG_AEC"); e && strcmp(e, "1") == 0) {
+            debug_mic_file_ = fopen("/tmp/debug_mic.f32", "wb");
+            debug_mixed_file_ = fopen("/tmp/debug_mixed.f32", "wb");
+            debug_aec_writer_.Open("/tmp/debug_aec.wav", kSampleRate, 1, 16);
+            Logger::info("AECRecorder: debug files enabled (/tmp/debug_*)");
+        }
 
         return true;
     }
@@ -426,7 +438,8 @@ void AECRecorder::Impl::StopCapture() {
     @autoreleasepool {
         // Stop the mic tap first – no new callbacks.
         [audio_engine_ pause];
-        capturing_.store(false);         // Signal callbacks to stop immediately
+        capturing_.store(false);
+        warmup_.store(false);           // Signal callbacks to stop immediately
         [NSThread sleepForTimeInterval:0.02]; // Let in-flight callbacks drain
 
         // Then stop system audio capture.
@@ -443,9 +456,10 @@ void AECRecorder::Impl::StopCapture() {
 
         Logger::info("AECRecorder: capture stopped");
 
-        // Close debug files (disabled — uncomment for AEC debugging)
-        // if (debug_mic_file_) { fclose(debug_mic_file_); debug_mic_file_ = nullptr; }
-        // if (debug_mixed_file_) { fclose(debug_mixed_file_); debug_mixed_file_ = nullptr; }
+        // Close debug files
+        if (debug_mic_file_)    { fclose(debug_mic_file_);    debug_mic_file_    = nullptr; }
+        if (debug_mixed_file_)  { fclose(debug_mixed_file_);  debug_mixed_file_  = nullptr; }
+        if (debug_aec_writer_.IsOpen()) { debug_aec_writer_.Close(); }
     }
 }
 
@@ -455,6 +469,7 @@ bool AECRecorder::Impl::PauseCapture() {
     @autoreleasepool {
         [audio_engine_ pause];
         capturing_.store(false);
+        warmup_.store(false);
         [NSThread sleepForTimeInterval:0.02];
         system_capture_.StopRecording();
         Logger::info("AECRecorder: capture paused");
@@ -580,7 +595,8 @@ void AECRecorder::Impl::OnSystemAudioData(const AudioBufferList* bufferList,
 // ============================================================================
 
 void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
-    if (!capturing_.load()) return;
+    if (!capturing_.load() && !warmup_.load()) return;
+    bool isWarmup = warmup_.load();
 
     float*       micRaw    = buffer.floatChannelData[0];
     AVAudioFrameCount frameCount = buffer.frameLength;
@@ -610,11 +626,10 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
     }
     if (aecFrames <= 0) return;
 
-    // Write raw mic to debug file (disabled — uncomment for AEC debugging)
-    // if (debug_mic_file_) {
-    //     fwrite(micRaw, sizeof(float), aecFrames, debug_mic_file_);
-    //     fflush(debug_mic_file_);
-    // }
+    // Write raw mic to debug file (only on main thread after AEC processed)
+    if (debug_mic_file_) {
+        fwrite(micRaw, sizeof(float), static_cast<size_t>(aecFrames), debug_mic_file_);
+    }
 
     // ---------- Chunked processing -----------------------------------------
     // 3A pipeline operates on 10ms blocks (kFramesPerBuffer = 480 @ 48kHz).
@@ -675,6 +690,18 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             peakAec = std::max(peakAec, std::fabs(aecOut[i]));
         }
 
+        // Write AEC output to debug WAV (echo-cancelled voice, no mix)
+        if (debug_aec_writer_.IsOpen()) {
+            std::vector<int16_t> aecI16(static_cast<size_t>(chunkSize));
+            for (int i = 0; i < chunkSize; ++i) {
+                float s = aecOut[i];
+                if (s < -1.0f) s = -1.0f;
+                if (s >  1.0f) s =  1.0f;
+                aecI16[static_cast<size_t>(i)] = static_cast<int16_t>(s * 32767.0f);
+            }
+            debug_aec_writer_.Write(aecI16.data(), static_cast<size_t>(chunkSize));
+        }
+
         // Ducking: dB-domain compressor on aecOut sidechain.
         float duckGain = ducker_.Process(aecOut.data(), chunkSize);
 
@@ -707,11 +734,10 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
         peakMic = std::max(peakMic, std::fabs(micRaw[i]));
     }
 
-    // Write debug mixed file (disabled — uncomment for AEC debugging)
-    // if (debug_mixed_file_) {
-    //     fwrite(mixed.data(), sizeof(float), aecFrames, debug_mixed_file_);
-    //     fflush(debug_mixed_file_);
-    // }
+    // Write debug mixed file
+    if (debug_mixed_file_) {
+        fwrite(mixed.data(), sizeof(float), static_cast<size_t>(aecFrames), debug_mixed_file_);
+    }
 
     // Diagnose every 5 callbacks (~500ms)
     static int logCounter = 0;
@@ -720,50 +746,48 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
                      peakMic, peakFar, peakAec, peakMix, numChunks, far_ring_buffer_.available_read());
     }
 
-    // ---------- 4. Apply limiter to prevent clipping ----------------------
-    // When system audio is loud, the mix of aecOut + ducked farChunk can
-    // exceed 1.0, causing hard-clipping distortion in the int16 conversion
-    // (the old clamp at [-1,1] is a hard clipper).  A soft limiter scales
-    // the entire buffer by 1/peak, preserving waveform shape without audible
-    // distortion.
-    if (peakMix > 1.0f) {
-        float scale = 1.0f / peakMix;
-        for (int i = 0; i < aecFrames; ++i) {
-            mixed[static_cast<size_t>(i)] *= scale;
+    // During warmup, everything below is skipped — AEC converges but no output
+    if (!isWarmup) {
+        // ---------- 4. Apply limiter to prevent clipping --------------------
+        if (peakMix > 1.0f) {
+            float scale = 1.0f / peakMix;
+            for (int i = 0; i < aecFrames; ++i) {
+                mixed[static_cast<size_t>(i)] *= scale;
+            }
         }
-    }
 
-    // ---------- 5. Convert to int16 and write WAV -------------------------
-    std::vector<int16_t> wavSamples(static_cast<size_t>(aecFrames));
-    for (int i = 0; i < aecFrames; ++i) {
-        float s = mixed[static_cast<size_t>(i)];
-        if (s < -1.0f) s = -1.0f;
-        if (s >  1.0f) s =  1.0f;
-        wavSamples[static_cast<size_t>(i)] =
-            static_cast<int16_t>(s * 32767.0f);
-    }
-
-    if (wav_writer_.IsOpen()) {
-        wav_writer_.Write(wavSamples.data(),
-                          static_cast<size_t>(aecFrames));
-    }
-
-    // Write 16kHz mono for Whisper
-    if (whisper_wav_writer_.IsOpen()) {
-        int whisperFrames = resampler_->GetOutputFrameCount(aecFrames);
-        auto whisperSamples = resampler_->Process(mixed.data(), aecFrames);
-        std::vector<int16_t> wav16(static_cast<size_t>(whisperFrames));
-        for (int i = 0; i < whisperFrames; ++i) {
-            float s = whisperSamples[static_cast<size_t>(i)];
+        // ---------- 5. Convert to int16 and write WAV -----------------------
+        std::vector<int16_t> wavSamples(static_cast<size_t>(aecFrames));
+        for (int i = 0; i < aecFrames; ++i) {
+            float s = mixed[static_cast<size_t>(i)];
             if (s < -1.0f) s = -1.0f;
             if (s >  1.0f) s =  1.0f;
-            wav16[static_cast<size_t>(i)] = static_cast<int16_t>(s * 32767.0f);
+            wavSamples[static_cast<size_t>(i)] =
+                static_cast<int16_t>(s * 32767.0f);
         }
-        whisper_wav_writer_.Write(wav16.data(), static_cast<size_t>(whisperFrames));
-    }
 
-    // ---------- 5. Dispatch to JS callback --------------------------------
-    if (mixed_pcm_callback_) {
-        mixed_pcm_callback_(mixed.data(), aecFrames, kSampleRate);
+        if (wav_writer_.IsOpen()) {
+            wav_writer_.Write(wavSamples.data(),
+                              static_cast<size_t>(aecFrames));
+        }
+
+        // Write 16kHz mono for Whisper
+        if (whisper_wav_writer_.IsOpen()) {
+            int whisperFrames = resampler_->GetOutputFrameCount(aecFrames);
+            auto whisperSamples = resampler_->Process(mixed.data(), aecFrames);
+            std::vector<int16_t> wav16(static_cast<size_t>(whisperFrames));
+            for (int i = 0; i < whisperFrames; ++i) {
+                float s = whisperSamples[static_cast<size_t>(i)];
+                if (s < -1.0f) s = -1.0f;
+                if (s >  1.0f) s =  1.0f;
+                wav16[static_cast<size_t>(i)] = static_cast<int16_t>(s * 32767.0f);
+            }
+            whisper_wav_writer_.Write(wav16.data(), static_cast<size_t>(whisperFrames));
+        }
+
+        // ---------- 6. Dispatch to JS callback ------------------------------
+        if (mixed_pcm_callback_) {
+            mixed_pcm_callback_(mixed.data(), aecFrames, kSampleRate);
+        }
     }
 }
