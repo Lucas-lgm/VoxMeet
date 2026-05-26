@@ -108,8 +108,7 @@ private:
     double                       far_energy_acc_{0.0};     // sum of squares during warmup
     double                       mic_energy_acc_{0.0};
     int64_t                      calib_samples_{0};
-    float                        far_ref_gain_{1.0f};      // locked after warmup, clamped [0.1,10]
-    std::vector<float>           far_norm_buffer_;          // pre-alloc for normalized far-end
+    float                        far_ref_gain_{1.0f};      // mic/far RMS ratio, locked after warmup
 };
 
 // ============================================================================
@@ -694,12 +693,11 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             peakFar = std::max(peakFar, af);
         }
 
-        // ---- Far-end reference level calibration ---------------------------
-        // Accumulate mic + far energy to calibrate the reference gain.
-        // Accumulates during warmup and for up to 5s after a device change.
-        // After accumulation the gain is LOCKED — zero time variation,
-        // so the AEC filter can converge perfectly.
-        // This is the same approach used by Krisp, NVIDIA Broadcast, etc.
+        // ---- Mic / far-end level calibration --------------------------------
+        // Attenuate the hot mic down to the far-end reference level before AEC,
+        // then restore the original level after.  This avoids amplifying the
+        // far-end (which would risk clipping) and keeps the AEC filter near
+        // unity gain — numerically stable, no modulation artefacts.
         constexpr int64_t kMaxCalibSamples = 48000 * 5; // 5s @ 48kHz
         if (calib_samples_ < kMaxCalibSamples) {
             for (int i = 0; i < chunkSize; ++i) {
@@ -709,34 +707,41 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
                 mic_energy_acc_ += ms * ms;
             }
             calib_samples_ += chunkSize;
-            // Update running gain after at least 100ms of data
             if (calib_samples_ > 4800 && far_energy_acc_ > 1e-10) {
                 float gain = static_cast<float>(
                     std::sqrt(mic_energy_acc_ / far_energy_acc_));
-                if (gain > 10.0f) gain = 10.0f;
-                if (gain < 0.1f) gain = 0.1f;
+                if (gain > 5.0f) gain = 5.0f;
+                if (gain < 0.2f) gain = 0.2f;
                 far_ref_gain_ = gain;
             }
         }
 
-        // Apply the calibrated (or calibrating) gain to far-end for AEC.
-        // Mix still uses the original farChunk data.
-        const float* aecFarRef = farChunk.data();
+        // Attenuate mic to match far-end level → AEC operates near unity gain.
+        // Far-end reference stays raw (no amplification, no clipping).
+        const float* aecMicIn = micChunk;
+        std::vector<float> micAttenBuf;
         if (std::fabs(far_ref_gain_ - 1.0f) > 0.01f) {
-            far_norm_buffer_.resize(static_cast<size_t>(chunkSize));
+            micAttenBuf.resize(static_cast<size_t>(chunkSize));
+            float invGain = 1.0f / far_ref_gain_;
             for (int i = 0; i < chunkSize; ++i) {
-                far_norm_buffer_[static_cast<size_t>(i)] =
-                    farChunk[i] * far_ref_gain_;
+                micAttenBuf[static_cast<size_t>(i)] = micChunk[i] * invGain;
             }
-            aecFarRef = far_norm_buffer_.data();
+            aecMicIn = micAttenBuf.data();
         }
 
         // Process through 3A pipeline (AEC + ANS, AGC2 disabled).
-        // Far-end reference is level-calibrated so AEC3's adaptive filter
-        // operates near unity gain, avoiding numerical instability when
-        // mic preamp gain >> system tap level.
         {
-            aec_.Process(micChunk, aecFarRef, aecOut.data(), chunkSize);
+            aec_.Process(aecMicIn, farChunk.data(), aecOut.data(), chunkSize);
+        }
+
+        // Restore original mic level in AEC output.
+        if (std::fabs(far_ref_gain_ - 1.0f) > 0.01f) {
+            for (int i = 0; i < chunkSize; ++i) {
+                float s = aecOut[i] * far_ref_gain_;
+                if (s >  1.0f) s =  1.0f;
+                if (s < -1.0f) s = -1.0f;
+                aecOut[i] = s;
+            }
         }
 
         // Track peaks after 3A processing
@@ -756,11 +761,11 @@ void AECRecorder::Impl::OnMicData(AVAudioPCMBuffer* buffer) {
             debug_aec_writer_.Write(aecI16.data(), static_cast<size_t>(chunkSize));
         }
 
-        // Write far-end reference to debug WAV (normalized, what AEC receives)
+        // Write far-end reference to debug WAV (raw system audio tap)
         if (debug_far_writer_.IsOpen()) {
             std::vector<int16_t> farI16(static_cast<size_t>(chunkSize));
             for (int i = 0; i < chunkSize; ++i) {
-                float s = aecFarRef[i];
+                float s = farChunk[i];
                 if (s < -1.0f) s = -1.0f;
                 if (s >  1.0f) s =  1.0f;
                 farI16[static_cast<size_t>(i)] = static_cast<int16_t>(s * 32767.0f);
